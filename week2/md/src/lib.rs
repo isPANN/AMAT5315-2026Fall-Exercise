@@ -1,3 +1,4 @@
+pub mod trajectory;
 pub fn greeting() -> &'static str {
     "Hello, world!"
 }
