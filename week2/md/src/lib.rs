@@ -237,7 +237,9 @@ mod tests {
             assert_eq!(samples.len(), steps + 1);
             assert_eq!(samples[0].step, 0);
             assert_eq!(samples[0].time, 0.0);
-            assert_eq!(samples[0].total_energy, lennard_jones_energy(1.2));
+            // Independently evaluated floating-point energies can differ by roundoff.
+            let energy_tolerance = 1e-12;
+            assert!((samples[0].total_energy - lennard_jones_energy(1.2)).abs() < energy_tolerance);
             assert_eq!(samples[0].energy_error, 0.0);
             assert_eq!(samples[steps].step, steps);
             assert_eq!(samples[steps].time, steps as f64 * 0.01);
@@ -248,10 +250,11 @@ mod tests {
                 }
                 assert_eq!(sample.step, step);
                 assert_eq!(sample.time, step as f64 * 0.01);
-                assert_eq!(sample.total_energy, state.energy().unwrap());
-                assert_eq!(
-                    sample.energy_error,
-                    state.energy().unwrap() - lennard_jones_energy(1.2)
+                let energy = state.energy().unwrap();
+                assert!((sample.total_energy - energy).abs() < energy_tolerance);
+                assert!(
+                    (sample.energy_error - (energy - lennard_jones_energy(1.2))).abs()
+                        < energy_tolerance
                 );
                 assert!(sample.total_energy.is_finite());
                 for value in state.positions.iter().chain(&state.velocities).flatten() {
