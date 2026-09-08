@@ -6,8 +6,8 @@ pub fn lennard_jones_energy(r: f64) -> f64 {
     4.0 * (r.powi(-12) - r.powi(-6))
 }
 
-pub fn lennard_jones_force(_r: f64) -> f64 {
-    todo!()
+pub fn lennard_jones_force(r: f64) -> f64 {
+    24.0 * (2.0 * r.powi(-13) - r.powi(-7))
 }
 
 #[cfg(test)]
