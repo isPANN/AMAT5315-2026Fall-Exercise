@@ -70,6 +70,40 @@ impl Integrator for VelocityVerlet {
     }
 }
 
+pub const INITIAL_STATE: State = State {
+    positions: [[0.0, 0.0], [1.2, 0.0]],
+    velocities: [[0.0, 0.0]; 2],
+};
+
+pub struct Sample {
+    pub step: usize,
+    pub time: f64,
+    pub total_energy: f64,
+    pub energy_error: f64,
+}
+
+pub fn run(integrator: &impl Integrator, mut state: State, dt: f64, steps: usize) -> Vec<Sample> {
+    let initial_energy = state.energy();
+    let mut samples = Vec::with_capacity(steps + 1);
+    for step in 0..=steps {
+        if step > 0 {
+            integrator.step(&mut state, dt);
+        }
+        let total_energy = state.energy();
+        assert!(
+            total_energy.is_finite(),
+            "nonfinite total energy at step {step}"
+        );
+        samples.push(Sample {
+            step,
+            time: step as f64 * dt,
+            total_energy,
+            energy_error: total_energy - initial_energy,
+        });
+    }
+    samples
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,5 +172,65 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn experiment_sampling_and_energy_behavior() {
+        fn check(method: &impl Integrator, steps: usize) -> Vec<Sample> {
+            let samples = run(method, INITIAL_STATE, 0.01, steps);
+            assert_eq!(samples.len(), steps + 1);
+            assert_eq!(samples[0].step, 0);
+            assert_eq!(samples[0].time, 0.0);
+            assert_eq!(samples[0].total_energy, lennard_jones_energy(1.2));
+            assert_eq!(samples[0].energy_error, 0.0);
+            assert_eq!(samples[steps].step, steps);
+            assert_eq!(samples[steps].time, steps as f64 * 0.01);
+            let mut state = INITIAL_STATE;
+            for (step, sample) in samples.iter().enumerate() {
+                if step > 0 {
+                    method.step(&mut state, 0.01);
+                }
+                assert_eq!(sample.step, step);
+                assert_eq!(sample.time, step as f64 * 0.01);
+                assert_eq!(sample.total_energy, state.energy());
+                assert_eq!(
+                    sample.energy_error,
+                    state.energy() - lennard_jones_energy(1.2)
+                );
+                assert!(sample.total_energy.is_finite());
+                for value in state.positions.iter().chain(&state.velocities).flatten() {
+                    assert!(value.is_finite());
+                }
+                for axis in 0..2 {
+                    assert!((state.velocities[0][axis] + state.velocities[1][axis]).abs() < 1e-12);
+                }
+                for atom in 0..2 {
+                    assert_eq!(state.positions[atom][1], 0.0);
+                    assert_eq!(state.velocities[atom][1], 0.0);
+                }
+            }
+            samples
+        }
+        let euler = check(&ForwardEuler, 500);
+        let verlet = check(&VelocityVerlet, 5000);
+        let max_error = |samples: &[Sample]| {
+            samples
+                .iter()
+                .map(|s| s.energy_error.abs())
+                .fold(0.0_f64, f64::max)
+        };
+        assert!(max_error(&verlet[..=500]) < max_error(&euler));
+        // Acceptance threshold: one percent of the initial energy magnitude.
+        assert!(max_error(&verlet) < 0.01 * lennard_jones_energy(1.2).abs());
+    }
+
+    #[test]
+    #[should_panic(expected = "nonfinite total energy at step 0")]
+    fn experiment_rejects_nonfinite_energy() {
+        let state = State {
+            positions: [[0.0, 0.0]; 2],
+            velocities: [[0.0, 0.0]; 2],
+        };
+        run(&ForwardEuler, state, 0.01, 1);
     }
 }
