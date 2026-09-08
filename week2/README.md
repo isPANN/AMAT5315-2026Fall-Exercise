@@ -40,3 +40,30 @@ saved state at 30 fps. Generated files are excluded from Git.
   | NumPy week2-sim.py | 3.598 | 3.552–3.601 |
   | Rust debug | 7.174 | 7.011–8.217 |
   | Rust release | 0.372 | 0.371–0.374 |
+
+## Benchmark
+
+Three runs per force method and N on an Apple M3 (arm64, macOS 26.6.2), using the
+installed optimized Rust build with debug symbols and frame pointers:
+
+```sh
+md run --force naive --n 100 --steps 500 --eq-steps 100 --out <unique-directory>
+md run --force cells --n 100 --steps 500 --eq-steps 100 --out <unique-directory>
+```
+
+Repeat for N = 400 and 1600; all other parameters use their defaults (no temperature
+ramp). Runs execute sequentially, alternating which method runs first in each pair.
+Times are elapsed wall-clock seconds, including process startup and writing 10 frames.
+Each entry is the median (min–max). Speedups are calculated as naive / cells within
+each of the three trial pairs, then summarized by their median and range.
+
+| N | naive (s) | cells (s) | speedup = naive / cells |
+| ---: | ---: | ---: | ---: |
+| 100 | 0.022118 (0.021863–0.026148) | 0.023242 (0.022624–0.023508) | 0.966× (0.941–1.125×) |
+| 400 | 0.217425 (0.216590–0.217517) | 0.078558 (0.077767–0.080826) | 2.768× (2.691–2.785×) |
+| 1600 | 3.089659 (3.080225–3.142572) | 0.344967 (0.341864–0.349475) | 8.956× (8.814–9.192×) |
+
+The plot divides total wall time by all 600 integration steps (100 equilibration +
+500 production). Both axes are logarithmic; error bars show min–max across three runs.
+
+![Naive and cell-list timing versus particle count](scaling.png)
