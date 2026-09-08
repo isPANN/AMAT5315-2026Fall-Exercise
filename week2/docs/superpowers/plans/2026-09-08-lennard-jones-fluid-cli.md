@@ -1,6 +1,6 @@
 # Lennard–Jones Fluid CLI Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Deliver `md run`, `md check`, and `md video` with the approved contract run, saved-state analysis, and an MP4 below 2 MB.
 
@@ -59,7 +59,7 @@ Reference documentation: [Clap derive](https://docs.rs/clap/4.5.48/clap/), [type
 
 Expose `RC: f64 = 2.5`, `State::displacement(i,j)->[f64;2]`, `State::interactions()->Result<(Vec<[f64;2]>, f64)>`, `State::kinetic_energy()->f64`, `State::energy()->Result<f64>`, and `Integrator::step(&self, &mut State, dt:f64)->Result<()>`. Replace `INITIAL_STATE` with `dimer_state()->State`. Keep `ForwardEuler`, `VelocityVerlet`, and the dimer `Sample` fields. Change `run(&impl Integrator, State, f64, usize)->Result<Vec<Sample>>` to propagate errors. Remove the old fixed-array implementation and obsolete `forces` method after updating callers.
 
-- [ ] **1. Add a failing periodic-interaction test.** The literals catch wrong minimum-image direction, a force shift, double-counted potential, and missing cutoff.
+- [x] **1. Add a failing periodic-interaction test.** The literals catch wrong minimum-image direction, a force shift, double-counted potential, and missing cutoff.
 
 ```rust
 #[test]
@@ -84,7 +84,7 @@ fn periodic_pair_uses_shifted_energy_and_plain_force() {
 
 Run `cargo test --manifest-path week2/md/Cargo.toml periodic_pair` and observe failure from missing periodic state/API.
 
-- [ ] **2. Implement the interaction calculation.** Keep the existing scalar functions, use a direct unordered pair loop, and calculate kinetic energy as the existing component-square sum.
+- [x] **2. Implement the interaction calculation.** Keep the existing scalar functions, use a direct unordered pair loop, and calculate kinetic energy as the existing component-square sum.
 
 ```rust
 pub fn displacement(&self, i: usize, j: usize) -> [f64; 2] {
@@ -132,7 +132,7 @@ pub fn energy(&self) -> Result<f64> {
 
 Do not add internal repeated shape validation: constructors/file readers own vector-shape validation. Boundary invalidity and singular forces must fail explicitly.
 
-- [ ] **3. Update integration and all dimer consumers together.** Old one-step tests already cover the formulas: convert their state literals to vectors with `box_size: None`, clone states instead of copying, and unwrap successful Results. Retain the independent numeric expectations. Replace the former panic expectation with `assert!(run(...).is_err())`.
+- [x] **3. Update integration and all dimer consumers together.** Old one-step tests already cover the formulas: convert their state literals to vectors with `box_size: None`, clone states instead of copying, and unwrap successful Results. Retain the independent numeric expectations. Replace the former panic expectation with `assert!(run(...).is_err())`.
 
 Velocity-Verlet method body:
 
@@ -163,7 +163,7 @@ pub fn dimer_state() -> State {
 
 Update the example and interim binary to `run(&ForwardEuler, dimer_state(), 0.01, 500)?`, the analogous Verlet call, and `dimer_state().energy()?.abs()`. Preserve the example's plot labels and normalization. No duplicate dimer engine.
 
-- [ ] **4. Run checks and commit.**
+- [x] **4. Run checks and commit.**
 
 ```sh
 cargo fmt --manifest-path week2/md/Cargo.toml
@@ -180,7 +180,7 @@ git commit -m "Extend shared molecular dynamics core to periodic fluids"
 
 **Interfaces:** All definitions below are public within `md::trajectory`: `RunConfig`, `Frame`, `geometry(n:usize,rho:f64)->Result<[f64;2]>`, `rescale(&mut State,target:f64)->Result<()>`, `initial_state(&RunConfig)->Result<State>`, `write_run(&RunConfig,&Path)->Result<()>`, `read_run(&Path)->Result<(RunConfig,Vec<Frame>)>`. `Frame::state(&self,&RunConfig)->State` constructs a cloned saved physical state without stepping. `RunConfig::validate()->Result<()>` and `Frame::validate(&self,&RunConfig,index:usize)->Result<()>` enforce the file contract; index is zero-based.
 
-- [ ] **1. Add dependencies and the initial failing test.** Keep existing Plotters settings unchanged.
+- [x] **1. Add dependencies and the initial failing test.** Keep existing Plotters settings unchanged.
 
 ```toml
 clap = { version = "4.5.48", features = ["derive"] }
@@ -220,7 +220,7 @@ fn seeded_lattice_has_zero_momentum_and_target_kinetic_energy() {
 
 Run `cargo test --manifest-path week2/md/Cargo.toml seeded_lattice` before implementing initialization.
 
-- [ ] **2. Implement config, geometry, and thermostat.** Derive typed serialization with exactly the specified JSON field names.
+- [x] **2. Implement config, geometry, and thermostat.** Derive typed serialization with exactly the specified JSON field names.
 
 ```rust
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -298,7 +298,7 @@ rescale(&mut state,config.temperature)?;
 Ok(state)
 ```
 
-- [ ] **3. Add a failing production-file test.** Use one test-owned directory under `std::env::temp_dir()` named with process ID and this semantic test name; create it with `create_dir`, never delete an unknown pre-existing directory. Cleanup only after assertions succeed.
+- [x] **3. Add a failing production-file test.** Use one test-owned directory under `std::env::temp_dir()` named with process ID and this semantic test name; create it with `create_dir`, never delete an unknown pre-existing directory. Cleanup only after assertions succeed.
 
 ```rust
 #[test]
@@ -332,7 +332,7 @@ fn production_files_exclude_zero_and_validate_sampling() {
 
 Run `cargo test --manifest-path week2/md/Cargo.toml production_files` and observe failure before file I/O implementation.
 
-- [ ] **4. Implement frames and file I/O.**
+- [x] **4. Implement frames and file I/O.**
 
 ```rust
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -411,7 +411,7 @@ if frames.len() != config.steps/config.sample_every { return Err("trajectory fra
 Ok((config,frames))
 ```
 
-- [ ] **5. Run all tests and commit only task files.**
+- [x] **5. Run all tests and commit only task files.**
 
 ```sh
 cargo fmt --manifest-path week2/md/Cargo.toml
@@ -427,7 +427,7 @@ git commit -m "Save and validate seeded fluid trajectories"
 
 **Interfaces:** `energy_drift(&[f64])->Result<f64>`, `speed_statistics(&[f64])->Result<(f64,f64)>` consumes actual speeds and returns (T_speed,reduced_chi_squared); `check(&RunConfig,&[Frame])->Result<Report>`; `Report { drift:f64, temperature:f64, speed_shape:f64 }`; `Report::passed(target:f64)->bool`; `rdf_series(&RunConfig,&[Frame])->Vec<Rdf>`; `Rdf { radius:Vec<f64>, values:Vec<f64>, contrast:f64 }` with all fields public. These functions consume validated saved input; no stepping or RNG imports.
 
-- [ ] **1. Add failing hand-calculated analysis tests.** Include the stored-energy and strict-limit tests specified in Step 3 in this initial failing-test run, before writing the analysis implementation.
+- [x] **1. Add failing hand-calculated analysis tests.** Include the stored-energy and strict-limit tests specified in Step 3 in this initial failing-test run, before writing the analysis implementation.
 
 ```rust
 #[test]
@@ -459,7 +459,7 @@ fn rdf_counts_both_neighbours_and_accumulates_frames() {
 
 Run `cargo test --manifest-path week2/md/Cargo.toml --lib` before implementing the new functions.
 
-- [ ] **2. Implement the exact statistics and recomputation path.**
+- [x] **2. Implement the exact statistics and recomputation path.**
 
 ```rust
 pub fn energy_drift(energies:&[f64])->Result<f64> {
@@ -530,7 +530,7 @@ curves
 
 The box validation ensures rmax>2.5, hence plotted bins above radius 2 exist. No empty-bin fallback is needed. Define the `Rdf` struct listed in Interfaces before this function.
 
-- [ ] **3. Confirm the saved-energy independence and strict-limit tests added in Step 1 now pass.** The synthetic frames below isolate recomputation: calculate a report, change finite stored `e_pot/e_kin` to unrelated values, and calculate again. Identical report quantities establish that those fields do not control the result. Task 5 separately exercises actual files through the CLI.
+- [x] **3. Confirm the saved-energy independence and strict-limit tests added in Step 1 now pass.** The synthetic frames below isolate recomputation: calculate a report, change finite stored `e_pot/e_kin` to unrelated values, and calculate again. Identical report quantities establish that those fields do not control the result. Task 5 separately exercises actual files through the CLI.
 
 ```rust
 #[test]
@@ -550,7 +550,7 @@ fn physical_checks_ignore_stored_energy_fields() {
 
 This test deliberately exercises analysis independently of schedule validation; Task 2 tests the saved-file boundary. Add `use crate::trajectory::initial_state;` in the test module. Add a strict-limit check using `Report { drift:0.002,temperature:0.5,speed_shape:1.0 }` and `assert!(!report.passed(0.5))`; likewise set speed_shape=2.0 with drift=0.0. For temperature, use a clearly outside value 0.56 to avoid a floating-point tie at 0.55.
 
-- [ ] **4. Format, run tests, and commit.**
+- [x] **4. Format, run tests, and commit.**
 
 ```sh
 cargo fmt --manifest-path week2/md/Cargo.toml
@@ -566,7 +566,7 @@ git commit -m "Recompute trajectory physics and radial structure"
 
 **Interfaces:** `render_frame(config:&RunConfig,frame:&Frame,rdf:&Rdf,ymax:f64,path:&Path)->Result<()>`; `record(config:&RunConfig,frames:&[Frame],out:&Path)->Result<()>`. Use only validated frames supplied by the shared reader. Keep `render_frame` visible within the module for its test; it need not be a public library API.
 
-- [ ] **1. Establish the failing render/encode check.** Add one ignored integration-style unit test in video.rs that constructs a short real trajectory using Task 2, calls record, and uses ffprobe to verify frame count. Ignore it during ordinary Cargo tests because it explicitly requires external ffmpeg; run it during this task and final verification.
+- [x] **1. Establish the failing render/encode check.** Add one ignored integration-style unit test in video.rs that constructs a short real trajectory using Task 2, calls record, and uses ffprobe to verify frame count. Ignore it during ordinary Cargo tests because it explicitly requires external ffmpeg; run it during this task and final verification.
 
 ```rust
 #[test]
@@ -590,7 +590,7 @@ fn video_preserves_saved_frame_count_and_size_limit() {
 
 Run `cargo test --manifest-path week2/md/Cargo.toml video_preserves -- --ignored` before implementing record; observe the missing renderer/encoder failure.
 
-- [ ] **2. Implement the two-panel frame.** Imports are Plotters prelude, Path, `crate::Result`, `crate::trajectory::{RunConfig,Frame}`, and `crate::analysis::Rdf`. Use 1200×600 pixels with one pixel-per-distance scale for both particle coordinates. Render atom centres, not a false hard-sphere diameter; marker radius is visual only.
+- [x] **2. Implement the two-panel frame.** Imports are Plotters prelude, Path, `crate::Result`, `crate::trajectory::{RunConfig,Frame}`, and `crate::analysis::Rdf`. Use 1200×600 pixels with one pixel-per-distance scale for both particle coordinates. Render atom centres, not a false hard-sphere diameter; marker radius is visual only.
 
 ```rust
 let root=BitMapBackend::new(path,(1200,600)).into_drawing_area(); root.fill(&WHITE)?;
@@ -619,7 +619,7 @@ Ok(())
 
 The lattice geometry guarantees Lx>Ly. Use the same ymax for every frame, computed over all cumulative curves plus the g=1 reference. Visually adjust spacing if the box or titles collide; do not change data to fit the layout.
 
-- [ ] **3. Implement bounded-size two-pass encoding.** Use `std::process::Command` arguments, not shell interpolation. Temporary PNGs and x264 pass logs live in a directory created solely by this invocation. Do not delete an unknown pre-existing directory; `create_dir` must fail on collision. Remove the owned directory after successful encoding; on error expose its path for diagnosis.
+- [x] **3. Implement bounded-size two-pass encoding.** Use `std::process::Command` arguments, not shell interpolation. Temporary PNGs and x264 pass logs live in a directory created solely by this invocation. Do not delete an unknown pre-existing directory; `create_dir` must fail on collision. Remove the owned directory after successful encoding; on error expose its path for diagnosis.
 
 ```rust
 let curves=crate::analysis::rdf_series(config,frames);
@@ -648,7 +648,7 @@ Ok(())
 
 Require the output parent directory to exist; the normal `artifacts/run.mp4` parent is created by run. Do not invent a platform fallback for `/dev/null`; this project's current runtime is macOS. No `-fs` output cap or frame dropping. Both passes consume exactly the same PNG sequence.
 
-- [ ] **4. Run the external check and commit.** The full contract video is checked again in Task 5 because it has a different size budget and data range.
+- [x] **4. Run the external check and commit.** The full contract video is checked again in Task 5 because it has a different size budget and data range.
 
 ```sh
 cargo fmt --manifest-path week2/md/Cargo.toml
@@ -664,7 +664,7 @@ git commit -m "Render saved particle motion with cumulative radial structure"
 
 **Interfaces:** CLI `run`, `check`, and `video` call Tasks 2–4 directly. No new library abstraction. `main()->md::Result<()>` prints every physical check before returning an error if the report fails. Clap owns syntax/type errors and unknown flags.
 
-- [ ] **1. Add a failing CLI contract test.** Add the parser-equivalence test shown in Step 2 at this stage too, before implementing the parser. The process test checks actual files, positive-only sampling, malformed-file exit status, and unsuccessful physics checks; no source-text assertions or snapshots.
+- [x] **1. Add a failing CLI contract test.** Add the parser-equivalence test shown in Step 2 at this stage too, before implementing the parser. The process test checks actual files, positive-only sampling, malformed-file exit status, and unsuccessful physics checks; no source-text assertions or snapshots.
 
 ```rust
 use std::{fs,process::Command};
@@ -698,7 +698,7 @@ fn cli_writes_samples_and_reports_failed_or_malformed_input() {
 
 Run `cargo test --manifest-path week2/md/Cargo.toml --test cli` before replacing main; the old binary does not create the required trajectory.
 
-- [ ] **2. Implement the CLI.** Use these concrete argument types and direct command routing. Derive `Debug` only where needed by parser tests; do not add dispatch registries.
+- [x] **2. Implement the CLI.** Use these concrete argument types and direct command routing. Derive `Debug` only where needed by parser tests; do not add dispatch registries.
 
 ```rust
 use clap::{Args,Parser,Subcommand};
@@ -772,7 +772,7 @@ mod tests {
 }
 ```
 
-- [ ] **3. Add reproduction and user documentation.** Makefile recipe indentation must be a literal tab.
+- [x] **3. Add reproduction and user documentation.** Makefile recipe indentation must be a literal tab.
 
 ```makefile
 .PHONY: reproduce
@@ -814,7 +814,7 @@ The video shows the cumulative 100-bin RDF, its long-range contrast, and one ima
 saved state at 30 fps. Generated files are excluded from Git.
 ```
 
-- [ ] **4. Run regular checks and the exact default experiment.** Use release mode for the quadratic pair loop. Do not change parameters or random seed to improve acceptance results.
+- [x] **4. Run regular checks and the exact default experiment.** Use release mode for the quadratic pair loop. Do not change parameters or random seed to improve acceptance results.
 
 ```sh
 cargo fmt --manifest-path week2/md/Cargo.toml
@@ -832,7 +832,7 @@ statistical limit; report the measured failure if diagnosis establishes that, ra
 silently altering the contract or declaring success. Repeat the expensive run only after
 changes or an unresolved numerical concern justify it.
 
-- [ ] **5. Verify the exact saved-frame and video contracts.**
+- [x] **5. Verify the exact saved-frame and video contracts.**
 
 ```sh
 python3 - <<'PY'
@@ -861,7 +861,7 @@ Open both extracted PNGs with the image-viewing tool. Inspect box aspect ratio, 
 particle positions, readable labels, a common RDF axis range, and evolving cumulative RDF.
 Fix only demonstrated issues, regenerate affected outputs, and inspect again when changed.
 
-- [ ] **6. Review scope, mark completed plan steps, and commit the finished tool.** Review all new call sites, ensuring no fixed two-atom loop remains in the shared integrators, no production thermostat is active, and no checker uses stored energy for its verdict. Check that generated outputs and temporary encoding files are absent from the staged diff. Run no unrelated cleanup.
+- [x] **6. Review scope, mark completed plan steps, and commit the finished tool.** Review all new call sites, ensuring no fixed two-atom loop remains in the shared integrators, no production thermostat is active, and no checker uses stored energy for its verdict. Check that generated outputs and temporary encoding files are absent from the staged diff. Run no unrelated cleanup.
 
 ```sh
 git check-ignore week2/artifacts/run.json week2/artifacts/traj.jsonl week2/artifacts/run.mp4 week2/dimer.png
@@ -880,5 +880,4 @@ RDF normalization and cumulative contrast, bounded-size encoding, the dimer call
 reproduction commands, and generated-artifact exclusions. Every cross-task type and
 function is named in the producing task's Interfaces section. Unit checks use computed
 physical expectations or hand-calculated values; no trajectory snapshots or implementation
-freezes are introduced. Numerical acceptance and video validation are execution work;
-this plan makes no claim that the new fluid run has already passed.
+freezes are introduced. Execution completed: 16 regular Rust tests passed, and the external ffmpeg test passed separately. Formatting and the dimer example check passed. The exact default run saved 200 frames and passed all three physics gates: drift 0.0000595787566, T_speed 0.5078529535 (deviation 0.0078529535), reduced chi-squared 0.751927273. The video contains 200 decoded frames at 30 fps, lasts 6.666667 seconds, and is 1,561,103 bytes. Early and late decoded frames were visually inspected. Generated outputs are ignored by Git.

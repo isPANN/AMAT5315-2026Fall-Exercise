@@ -175,4 +175,28 @@ mod tests {
         assert_eq!(a.temperature, b.temperature);
         assert_eq!(a.speed_shape, b.speed_shape);
     }
+
+    #[test]
+    fn physical_limits_are_strict() {
+        for (drift, temperature, speed_shape) in
+            [(0.002, 0.5, 1.0), (0.0, 0.56, 1.0), (0.0, 0.5, 2.0)]
+        {
+            assert!(
+                !Report {
+                    drift,
+                    temperature,
+                    speed_shape
+                }
+                .passed(0.5)
+            );
+        }
+        assert!(
+            Report {
+                drift: 0.001,
+                temperature: 0.51,
+                speed_shape: 1.0
+            }
+            .passed(0.5)
+        );
+    }
 }
