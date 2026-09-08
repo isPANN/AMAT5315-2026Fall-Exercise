@@ -45,7 +45,7 @@ Commands below run from the repository root. Read the spec and applicable reposi
 - Consumes: existing `lennard_jones_energy(r: f64) -> f64` and `lennard_jones_force(r: f64) -> f64`.
 - Produces: `State`, `State::forces() -> [[f64; 2]; 2]`, `State::energy() -> f64`, `Integrator::step(&self, &mut State, f64)`, `ForwardEuler`, and `VelocityVerlet`.
 
-- [ ] **Step 1: Add the following tests to the existing test module.** Add `use super::*;` and remove the now-redundant `use super::greeting;` import. Keep the existing tests.
+- [x] **Step 1: Add the following tests to the existing test module.** Add `use super::*;` and remove the now-redundant `use super::greeting;` import. Keep the existing tests.
 
 ```rust
 #[test]
@@ -100,13 +100,13 @@ fn integrator_steps_follow_their_formulas() {
 }
 ```
 
-- [ ] **Step 2: Run the tests and confirm the missing types cause failure.**
+- [x] **Step 2: Run the tests and confirm the missing types cause failure.**
 
 ```sh
 cargo test --manifest-path week2/md/Cargo.toml
 ```
 
-- [ ] **Step 3: Add the direct implementation below the scalar Lennard–Jones functions.**
+- [x] **Step 3: Add the direct implementation below the scalar Lennard–Jones functions.**
 
 ```rust
 #[derive(Clone, Copy, Debug)]
@@ -170,7 +170,7 @@ impl Integrator for VelocityVerlet {
 }
 ```
 
-- [ ] **Step 4: Format, rerun the tests, and commit only the library.**
+- [x] **Step 4: Format, rerun the tests, and commit only the library.**
 
 ```sh
 cargo fmt --manifest-path week2/md/Cargo.toml
@@ -188,7 +188,7 @@ git commit -m "Add two-atom state and Euler and Verlet integrators"
 - Produces: `INITIAL_STATE: State`, `Sample { step: usize, time: f64, total_energy: f64, energy_error: f64 }`, and `run(integrator: &impl Integrator, state: State, dt: f64, steps: usize) -> Vec<Sample>`.
 - `run` computes the baseline from its supplied initial state's energy; for the required `INITIAL_STATE` that equals `U(1.2)` exactly. This keeps the runner consistent with its initial-state argument.
 
-- [ ] **Step 1: Add the following test.** The inner check exercises each concrete method through the same trait without adding production dispatch machinery.
+- [x] **Step 1: Add the following test.** The inner check exercises each concrete method through the same trait without adding production dispatch machinery.
 
 ```rust
 #[test]
@@ -236,13 +236,13 @@ fn experiment_sampling_and_energy_behavior() {
 }
 ```
 
-- [ ] **Step 2: Run the new test and confirm failure from missing runner symbols.**
+- [x] **Step 2: Run the new test and confirm failure from missing runner symbols.**
 
 ```sh
 cargo test --manifest-path week2/md/Cargo.toml experiment_sampling_and_energy_behavior
 ```
 
-- [ ] **Step 3: Add the runner and its data types.** A nonfinite energy fails at sample production instead of reaching CSV or plotting; no force alteration or recovery path is introduced.
+- [x] **Step 3: Add the runner and its data types.** A nonfinite energy fails at sample production instead of reaching CSV or plotting; no force alteration or recovery path is introduced.
 
 ```rust
 pub const INITIAL_STATE: State = State {
@@ -277,7 +277,7 @@ pub fn run(integrator: &impl Integrator, mut state: State, dt: f64, steps: usize
 }
 ```
 
-- [ ] **Step 4: Format, run all tests, and commit.** Do not relax the acceptance bound to hide a failure; inspect force signs and stepping order first.
+- [x] **Step 4: Format, run all tests, and commit.** Do not relax the acceptance bound to hide a failure; inspect force signs and stepping order first.
 
 ```sh
 cargo fmt --manifest-path week2/md/Cargo.toml
@@ -294,13 +294,13 @@ git commit -m "Add shared molecular dynamics energy experiment"
 - Consumes: `run`, `INITIAL_STATE`, `ForwardEuler`, `VelocityVerlet`, and the `Sample` fields from Task 2.
 - Produces: `week2/energy_error.csv` and `week2/energy_error.png` when run through Cargo; no new public Rust interface.
 
-- [ ] **Step 1: Establish the output check before replacing the executable.** Run the current executable, then the Python check in Step 3. On the current source the check must fail because the required CSV is absent. This check is a one-time verification command, not a committed diagnostic script.
+- [x] **Step 1: Establish the output check before replacing the executable.** Run the current executable, then the Python check in Step 3. On the current source the check must fail because the required CSV is absent. This check is a one-time verification command, not a committed diagnostic script.
 
 ```sh
 cargo run --manifest-path week2/md/Cargo.toml
 ```
 
-- [ ] **Step 2: Replace all of `main.rs` with the following.** Use `PathElement` for polylines because the existing Plotters feature selection does not enable `LineSeries`. Each panel derives its own range from its data, including zero; the prescribed trajectories have nonzero error ranges, so no speculative constant-series fallback is needed.
+- [x] **Step 2: Replace all of `main.rs` with the following.** Use `PathElement` for polylines because the existing Plotters feature selection does not enable `LineSeries`. Each panel derives its own range from its data, including zero; the prescribed trajectories have nonzero error ranges, so no speculative constant-series fallback is needed.
 
 ```rust
 use md::{run, ForwardEuler, VelocityVerlet, INITIAL_STATE};
@@ -389,7 +389,7 @@ Remove the superseded tracked artifact:
 git rm -- week2/field.png
 ```
 
-- [ ] **Step 3: Run formatting, tests, the executable, and the CSV check.** The CSV check validates the public output contract and reports measured errors; it does not snapshot results.
+- [x] **Step 3: Run formatting, tests, the executable, and the CSV check.** The CSV check validates the public output contract and reports measured errors; it does not snapshot results.
 
 ```sh
 cargo fmt --manifest-path week2/md/Cargo.toml
@@ -426,9 +426,9 @@ assert Path('week2/energy_error.png').is_file()
 PY
 ```
 
-- [ ] **Step 4: Open `week2/energy_error.png` with the image-viewing tool.** Confirm both panels, correct time ranges, legible axis labels and legends, visible long-run Verlet oscillations, and no clipping or legend overlap obscuring the curves. Adjust only plotting layout if needed, rerun the executable, and inspect again after any layout change. Do not infer visual correctness from file existence.
+- [x] **Step 4: Open `week2/energy_error.png` with the image-viewing tool.** Confirm both panels, correct time ranges, legible axis labels and legends, visible long-run Verlet oscillations, and no clipping or legend overlap obscuring the curves. Adjust only plotting layout if needed, rerun the executable, and inspect again after any layout change. Do not infer visual correctness from file existence.
 
-- [ ] **Step 5: Check scope and commit only source changes.** Confirm the CSV and PNG are ignored, the old field image is deleted, and there are no dependency changes. Report measured error values and checks in the completion message. If code review is requested, use the installed requesting-code-review skill and resolve the review before declaring completion.
+- [x] **Step 5: Check scope and commit only source changes.** Confirm the CSV and PNG are ignored, the old field image is deleted, and there are no dependency changes. Report measured error values and checks in the completion message. If code review is requested, use the installed requesting-code-review skill and resolve the review before declaring completion.
 
 ```sh
 git check-ignore week2/energy_error.csv week2/energy_error.png
@@ -441,4 +441,4 @@ git status --short
 
 ## Plan self-review
 
-The three tasks cover the physical model, update formulas, shared runner, all run lengths and measurements, both output formats, replacement cleanup, and the specified verification. Every production symbol used by the executable is introduced in Tasks 1 or 2. No additional dependency, dispatch interface, generated artifact, or unrelated cleanup is included. Code and numerical results in this plan are proposed implementation steps, not executed or verified results.
+The three tasks cover the physical model, update formulas, shared runner, all run lengths and measurements, both output formats, replacement cleanup, and the specified verification. Every production symbol used by the executable is introduced in Tasks 1 or 2. No additional dependency, dispatch interface, generated artifact, or unrelated cleanup is included. Implementation is complete. All seven Rust tests, formatting, and CSV contract checks passed. The generated two-panel plot was visually inspected. Maximum absolute energy errors were 1.7423937126005058 for Euler through time 5 and 0.00028960755168305763 for Verlet through time 50.

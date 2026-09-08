@@ -1,99 +1,98 @@
+use md::{ForwardEuler, INITIAL_STATE, VelocityVerlet, run};
 use plotters::prelude::*;
-use std::{error::Error, path::Path};
-
-fn energy_color(energy: f64) -> RGBColor {
-    let strength = energy.abs().min(1.0);
-    let pale = (255.0 * (1.0 - strength)) as u8;
-    if energy < 0.0 {
-        RGBColor(pale, pale, 255)
-    } else {
-        RGBColor(255, pale, pale)
-    }
-}
+use std::{
+    error::Error,
+    fs::File,
+    io::{BufWriter, Write},
+    path::Path,
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let output = Path::new(env!("CARGO_MANIFEST_DIR")).join("../field.png");
-    let root = BitMapBackend::new(&output, (900, 800)).into_drawing_area();
-    root.fill(&WHITE)?;
-    let (field, legend) = root.split_horizontally(800);
-    let mut chart = ChartBuilder::on(&field)
-        .caption("Lennard-Jones pair energy and force", ("sans-serif", 28))
-        .margin(20)
-        .x_label_area_size(40)
-        .y_label_area_size(40)
-        .build_cartesian_2d(-3.0..3.0, -3.0..3.0)?;
-    chart
-        .configure_mesh()
-        .x_desc("x / σ")
-        .y_desc("y / σ")
-        .draw()?;
-
-    let cells = 150;
-    let step = 6.0 / cells as f64;
-    chart.draw_series((0..cells).flat_map(|i| {
-        (0..cells).map(move |j| {
-            let x = -3.0 + (i as f64 + 0.5) * step;
-            let y = -3.0 + (j as f64 + 0.5) * step;
-            let r = x.hypot(y);
-            Rectangle::new(
-                [
-                    (x - step / 2.0, y - step / 2.0),
-                    (x + step / 2.0, y + step / 2.0),
-                ],
-                energy_color(md::lennard_jones_energy(r)).filled(),
-            )
-        })
-    }))?;
-
-    for i in -8..=8 {
-        for j in -8..=8 {
-            let (x, y) = (i as f64 * 0.35, j as f64 * 0.35);
-            let r = x.hypot(y);
-            if r < 0.7 {
-                continue;
-            }
-            let force = md::lennard_jones_force(r);
-            let length = 0.22 * (force.abs() / 2.0).min(1.0);
-            let (dx, dy) = (
-                length * force.signum() * x / r,
-                length * force.signum() * y / r,
-            );
-            let end = (x + dx, y + dy);
-            let angle = dy.atan2(dx);
-            let head = (0.45 * length).min(0.06);
-            chart.draw_series(std::iter::once(PathElement::new(
-                vec![
-                    (x, y),
-                    end,
-                    (
-                        end.0 - head * (angle - 0.6).cos(),
-                        end.1 - head * (angle - 0.6).sin(),
-                    ),
-                    end,
-                    (
-                        end.0 - head * (angle + 0.6).cos(),
-                        end.1 - head * (angle + 0.6).sin(),
-                    ),
-                ],
-                BLACK,
-            )))?;
+    let euler = run(&ForwardEuler, INITIAL_STATE, 0.01, 500);
+    let verlet = run(&VelocityVerlet, INITIAL_STATE, 0.01, 5000);
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let csv_path = directory.join("energy_error.csv");
+    let png_path = directory.join("energy_error.png");
+    let mut csv = BufWriter::new(File::create(&csv_path)?);
+    writeln!(csv, "method,step,time,total_energy,energy_error")?;
+    for (method, samples) in [("euler", &euler), ("verlet", &verlet)] {
+        for sample in samples {
+            writeln!(
+                csv,
+                "{},{},{},{},{}",
+                method, sample.step, sample.time, sample.total_energy, sample.energy_error
+            )?;
         }
     }
-    chart.draw_series(std::iter::once(Circle::new((0.0, 0.0), 7, BLACK.filled())))?;
+    csv.flush()?;
 
-    legend.draw(&Text::new("U(r)", (20, 65), ("sans-serif", 18)))?;
-    for y in 80..=680 {
-        let energy = 1.0 - 2.0 * (y - 80) as f64 / 600.0;
-        legend.draw(&Rectangle::new(
-            [(20, y), (45, y + 1)],
-            energy_color(energy).filled(),
-        ))?;
+    let root = BitMapBackend::new(&png_path, (1200, 900)).into_drawing_area();
+    root.fill(&WHITE)?;
+    let panels = root.split_evenly((2, 1));
+    for (panel_index, panel) in panels.iter().enumerate() {
+        let series = if panel_index == 0 {
+            vec![
+                ("Forward Euler", euler.as_slice(), RED),
+                ("Velocity-Verlet", &verlet[..=500], BLUE),
+            ]
+        } else {
+            vec![("Velocity-Verlet", verlet.as_slice(), BLUE)]
+        };
+        let mut low = 0.0_f64;
+        let mut high = 0.0_f64;
+        for (_, samples, _) in &series {
+            for sample in *samples {
+                low = low.min(sample.energy_error);
+                high = high.max(sample.energy_error);
+            }
+        }
+        let padding = 0.08 * (high - low);
+        let (title, end_time) = if panel_index == 0 {
+            ("Euler and velocity-Verlet: first 500 steps", 5.0)
+        } else {
+            ("Velocity-Verlet: 5000 steps", 50.0)
+        };
+        let mut chart = ChartBuilder::on(panel)
+            .caption(title, ("sans-serif", 24))
+            .margin(20)
+            .x_label_area_size(50)
+            .y_label_area_size(110)
+            .build_cartesian_2d(0.0..end_time, (low - padding)..(high + padding))?;
+        chart
+            .configure_mesh()
+            .max_light_lines(0)
+            .x_labels(11)
+            .y_labels(7)
+            .axis_desc_style(("sans-serif", 18))
+            .label_style(("sans-serif", 16))
+            .x_desc("Time (reduced units)")
+            .y_desc("E(t) - E0 (reduced energy)")
+            .y_label_formatter(&|value| format!("{value:.5}"))
+            .draw()?;
+        for (label, samples, color) in series {
+            let points: Vec<_> = samples
+                .iter()
+                .map(|sample| (sample.time, sample.energy_error))
+                .collect();
+            chart
+                .draw_series(std::iter::once(PathElement::new(
+                    points,
+                    color.stroke_width(2),
+                )))?
+                .label(label)
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], color));
+        }
+        if panel_index == 0 {
+            chart
+                .configure_series_labels()
+                .position(SeriesLabelPosition::UpperLeft)
+                .label_font(("sans-serif", 18))
+                .background_style(WHITE.mix(0.9))
+                .border_style(BLACK)
+                .draw()?;
+        }
     }
-    for (label, y) in [("+1", 85), ("0", 385), ("−1", 685)] {
-        legend.draw(&Text::new(label, (52, y), ("sans-serif", 15)))?;
-    }
-    legend.draw(&Text::new("ε", (52, 720), ("sans-serif", 15)))?;
     root.present()?;
-    println!("{}", output.display());
+    println!("{}\n{}", csv_path.display(), png_path.display());
     Ok(())
 }
