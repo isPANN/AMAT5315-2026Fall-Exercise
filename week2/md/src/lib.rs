@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod trajectory;
+pub mod video;
 pub fn greeting() -> &'static str {
     "Hello, world!"
 }
