@@ -32,3 +32,11 @@ saved state at 30 fps. Generated files are excluded from Git.
 ## Pages
 
 [Open the molecular dynamics viewer](https://ispann.github.io/AMAT5315-2026Fall-Exercise/).
+
+## Timing
+
+  | Program | Median (s) | Range: min–max (s) |
+  | --- | ---: | ---: |
+  | NumPy week2-sim.py | 3.598 | 3.552–3.601 |
+  | Rust debug | 7.174 | 7.011–8.217 |
+  | Rust release | 0.372 | 0.371–0.374 |
