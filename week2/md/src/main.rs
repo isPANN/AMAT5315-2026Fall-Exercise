@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use md::Force;
 use md::trajectory::{RunConfig, geometry, read_run, write_run};
 use std::path::PathBuf;
 
@@ -25,12 +26,17 @@ enum Commands {
 }
 #[derive(Args)]
 struct RunArgs {
+    #[arg(long, value_enum, default_value = "cells")]
+    force: Force,
     #[arg(long, default_value_t = 100)]
     n: usize,
     #[arg(long, default_value_t = 0.8)]
     rho: f64,
     #[arg(long, default_value_t = 0.5)]
     temperature: f64,
+    /// Linearly ramp the production thermostat to this temperature.
+    #[arg(long)]
+    ramp_to: Option<f64>,
     #[arg(long, default_value_t = 0.01)]
     dt: f64,
     #[arg(long, default_value_t = 2000)]
@@ -53,11 +59,13 @@ fn main() -> md::Result<()> {
                 box_size: geometry(args.n, args.rho)?,
                 dt: args.dt,
                 temperature: args.temperature,
+                ramp_to: args.ramp_to,
                 eq_steps: args.eq_steps,
                 steps: args.steps,
                 sample_every: args.sample_every,
                 seed: args.seed,
                 integrator: "velocity-verlet".into(),
+                force: args.force,
             };
             write_run(&config, &args.out)?;
             println!(
@@ -113,6 +121,8 @@ mod tests {
         let Commands::Run(b) = Cli::try_parse_from([
             "md",
             "run",
+            "--force",
+            "cells",
             "--n",
             "100",
             "--rho",
@@ -139,9 +149,11 @@ mod tests {
         };
         assert_eq!(
             (
+                a.force,
                 a.n,
                 a.rho,
                 a.temperature,
+                a.ramp_to,
                 a.dt,
                 a.eq_steps,
                 a.steps,
@@ -150,9 +162,11 @@ mod tests {
                 a.out
             ),
             (
+                b.force,
                 b.n,
                 b.rho,
                 b.temperature,
+                b.ramp_to,
                 b.dt,
                 b.eq_steps,
                 b.steps,

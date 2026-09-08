@@ -16,11 +16,21 @@ pub fn lennard_jones_force(r: f64) -> f64 {
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub const RC: f64 = 2.5;
 
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Force {
+    Naive,
+    Cells,
+}
+
 #[derive(Clone, Debug)]
 pub struct State {
     pub positions: Vec<[f64; 2]>,
     pub velocities: Vec<[f64; 2]>,
     pub box_size: Option<[f64; 2]>,
+    pub force: Force,
 }
 impl State {
     pub fn displacement(&self, i: usize, j: usize) -> [f64; 2] {
@@ -34,33 +44,90 @@ impl State {
     }
 
     pub fn interactions(&self) -> Result<(Vec<[f64; 2]>, f64)> {
+        match self.force {
+            Force::Naive => self.interactions_naive(),
+            Force::Cells => self.interactions_cells(),
+        }
+    }
+
+    fn add_pair(&self, i: usize, j: usize, forces: &mut [[f64; 2]]) -> Result<f64> {
+        let d = self.displacement(i, j);
+        let r2 = d[0] * d[0] + d[1] * d[1];
+        if !r2.is_finite() || r2 <= 0.0 {
+            return Err(format!("invalid separation for atoms {i}, {j}").into());
+        }
+        if self.box_size.is_some() && r2 >= RC * RC {
+            return Ok(0.0);
+        }
+        let r = r2.sqrt();
+        let u = lennard_jones_energy(r);
+        let scale = lennard_jones_force(r) / r;
+        if !u.is_finite() || !scale.is_finite() {
+            return Err(format!("nonfinite interaction for atoms {i}, {j}").into());
+        }
+        for axis in 0..2 {
+            forces[i][axis] -= scale * d[axis];
+            forces[j][axis] += scale * d[axis];
+        }
+        Ok(u - if self.box_size.is_some() {
+            lennard_jones_energy(RC)
+        } else {
+            0.0
+        })
+    }
+
+    pub fn interactions_naive(&self) -> Result<(Vec<[f64; 2]>, f64)> {
         let mut forces = vec![[0.0; 2]; self.positions.len()];
         let mut potential = 0.0;
-        // ponytail: O(N²) pair loop; use cell lists if larger-run timings require them.
         for i in 0..self.positions.len() {
             for j in i + 1..self.positions.len() {
-                let d = self.displacement(i, j);
-                let r2 = d[0] * d[0] + d[1] * d[1];
-                if !r2.is_finite() || r2 <= 0.0 {
-                    return Err(format!("invalid separation for atoms {i}, {j}").into());
+                potential += self.add_pair(i, j, &mut forces)?;
+            }
+        }
+        Ok((forces, potential))
+    }
+
+    pub fn interactions_cells(&self) -> Result<(Vec<[f64; 2]>, f64)> {
+        let lengths = self.box_size.ok_or("cell forces require a periodic box")?;
+        if lengths.iter().any(|l| !l.is_finite() || *l < RC) {
+            return Err("cell box sides must be finite and at least rc".into());
+        }
+        let counts = lengths.map(|l| (l / RC).floor() as usize);
+        let widths: [f64; 2] = std::array::from_fn(|axis| lengths[axis] / counts[axis] as f64);
+        let mut cells = vec![Vec::new(); counts[0] * counts[1]];
+        for (i, position) in self.positions.iter().enumerate() {
+            if position.iter().any(|v| !v.is_finite()) {
+                return Err(format!("nonfinite position for atom {i}").into());
+            }
+            let index: [usize; 2] = std::array::from_fn(|axis| {
+                (position[axis].rem_euclid(lengths[axis]) / widths[axis]).floor() as usize
+                    % counts[axis]
+            });
+            cells[index[0] + counts[0] * index[1]].push(i);
+        }
+        let mut forces = vec![[0.0; 2]; self.positions.len()];
+        let mut potential = 0.0;
+        for (cell, atoms) in cells.iter().enumerate() {
+            let x = cell % counts[0];
+            let y = cell / counts[0];
+            let mut neighbours = [0; 9];
+            let mut used = 0;
+            for dy in [counts[1] - 1, 0, 1] {
+                for dx in [counts[0] - 1, 0, 1] {
+                    let neighbour = (x + dx) % counts[0] + counts[0] * ((y + dy) % counts[1]);
+                    if !neighbours[..used].contains(&neighbour) {
+                        neighbours[used] = neighbour;
+                        used += 1;
+                    }
                 }
-                if self.box_size.is_some() && r2 >= RC * RC {
-                    continue;
-                }
-                let r = r2.sqrt();
-                let u = lennard_jones_energy(r);
-                let scale = lennard_jones_force(r) / r;
-                if !u.is_finite() || !scale.is_finite() {
-                    return Err(format!("nonfinite interaction for atoms {i}, {j}").into());
-                }
-                potential += u - if self.box_size.is_some() {
-                    lennard_jones_energy(RC)
-                } else {
-                    0.0
-                };
-                for axis in 0..2 {
-                    forces[i][axis] -= scale * d[axis];
-                    forces[j][axis] += scale * d[axis];
+            }
+            for &i in atoms {
+                for &neighbour in &neighbours[..used] {
+                    for &j in &cells[neighbour] {
+                        if j > i {
+                            potential += self.add_pair(i, j, &mut forces)?;
+                        }
+                    }
                 }
             }
         }
@@ -128,6 +195,7 @@ pub fn dimer_state() -> State {
         positions: vec![[0.0, 0.0], [1.2, 0.0]],
         velocities: vec![[0.0, 0.0]; 2],
         box_size: None,
+        force: Force::Naive,
     }
 }
 pub struct Sample {
@@ -163,6 +231,73 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cells_match_naive_on_perturbed_lattices_and_periodic_edge_pairs() {
+        fn compare(state: &State) {
+            let (naive, naive_energy) = state.interactions_naive().unwrap();
+            let (cells, cells_energy) = state.interactions_cells().unwrap();
+            for (a, b) in naive.iter().flatten().zip(cells.iter().flatten()) {
+                assert!((a - b).abs() <= 1e-10 * (1.0 + a.abs()), "{a} != {b}");
+            }
+            assert!(
+                (naive_energy - cells_energy).abs() <= 1e-10 * (1.0 + naive_energy.abs()),
+                "{naive_energy} != {cells_energy}"
+            );
+        }
+        for (n, rho) in [(16, 0.5), (100, 0.8), (400, 0.8)] {
+            let config = trajectory::RunConfig {
+                n,
+                rho,
+                box_size: trajectory::geometry(n, rho).unwrap(),
+                ..trajectory::RunConfig::default()
+            };
+            if n == 16 {
+                assert_eq!(config.box_size.map(|l| (l / RC).floor() as usize), [2, 2]);
+            }
+            let mut state = trajectory::initial_state(&config).unwrap();
+            for shift in 0..3 {
+                for (i, position) in state.positions.iter_mut().enumerate() {
+                    for axis in 0..2 {
+                        position[axis] = (position[axis]
+                            + 0.08 * ((i * 7 + axis * 3 + shift) as f64).sin()
+                            + 0.7 * config.box_size[axis])
+                            .rem_euclid(config.box_size[axis]);
+                    }
+                }
+                compare(&state);
+            }
+        }
+        for lengths in [[6.0, 6.0], [6.0, 12.0], [12.0, 9.0]] {
+            let mut state = State {
+                positions: vec![[0.0, 0.0]; 2],
+                velocities: vec![[0.0; 2]; 2],
+                box_size: Some(lengths),
+                force: Force::Cells,
+            };
+            for pair in [
+                [[0.1, 1.0], [lengths[0] - 1.0, 1.0]],
+                [[1.0, 0.1], [1.0, lengths[1] - 1.0]],
+                [[0.1, 0.1], [lengths[0] - 0.7, lengths[1] - 0.7]],
+                [[0.0, 0.0], [RC - 1e-10, 0.0]],
+                [[0.0, 0.0], [RC, 0.0]],
+                [[0.0, 0.0], [RC + 1e-10, 0.0]],
+            ] {
+                state.positions = pair.to_vec();
+                compare(&state);
+                if pair[1][0] == RC || pair[1][0] == RC + 1e-10 {
+                    assert_eq!(state.interactions().unwrap(), (vec![[0.0; 2]; 2], 0.0));
+                }
+            }
+            state.positions = vec![[0.0, 0.0]; 2];
+            assert!(state.interactions().is_err());
+            state.positions[1][0] = f64::NAN;
+            assert!(state.interactions().is_err());
+        }
+        let mut dimer = dimer_state();
+        dimer.force = Force::Cells;
+        assert!(dimer.interactions().is_err());
+    }
+
+    #[test]
     fn greeting_is_hello_world() {
         assert_eq!(greeting(), "Hello, world!");
     }
@@ -183,6 +318,7 @@ mod tests {
             positions: vec![[0.0, 0.0], [0.72, 0.96]],
             velocities: vec![[1.0, 2.0], [-3.0, 4.0]],
             box_size: None,
+            force: Force::Naive,
         };
         let force = state.interactions().unwrap().0;
         // Separation 1.2 along (0.6, 0.8); kinetic energy is 15.
@@ -200,6 +336,7 @@ mod tests {
             positions: vec![[0.0, 0.0], [1.2, 0.0]],
             velocities: vec![[0.1, 0.2], [-0.1, -0.2]],
             box_size: None,
+            force: Force::Naive,
         };
         let mut euler = initial.clone();
         ForwardEuler.step(&mut euler, 0.01).unwrap();
@@ -289,6 +426,7 @@ mod tests {
             positions: vec![[0.0, 0.0]; 2],
             velocities: vec![[0.0, 0.0]; 2],
             box_size: None,
+            force: Force::Naive,
         };
         assert!(run(&ForwardEuler, state, 0.01, 1).is_err());
     }
@@ -299,6 +437,7 @@ mod tests {
             positions: vec![[0.0, 0.0], [5.0, 0.0]],
             velocities: vec![[0.0, 0.0]; 2],
             box_size: Some([6.0, 6.0]),
+            force: Force::Naive,
         };
         assert_eq!(state.displacement(0, 1), [-1.0, 0.0]);
         let (force, potential) = state.interactions().unwrap();

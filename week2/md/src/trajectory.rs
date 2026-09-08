@@ -1,4 +1,4 @@
-use crate::{Integrator, RC, Result, State, VelocityVerlet};
+use crate::{Force, Integrator, RC, Result, State, VelocityVerlet};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Normal};
@@ -14,11 +14,13 @@ pub struct RunConfig {
     pub box_size: [f64; 2],
     pub dt: f64,
     pub temperature: f64,
+    pub ramp_to: Option<f64>,
     pub eq_steps: usize,
     pub steps: usize,
     pub sample_every: usize,
     pub seed: u64,
     pub integrator: String,
+    pub force: Force,
 }
 impl Default for RunConfig {
     fn default() -> Self {
@@ -28,11 +30,13 @@ impl Default for RunConfig {
             box_size: geometry(100, 0.8).unwrap(),
             dt: 0.01,
             temperature: 0.5,
+            ramp_to: None,
             eq_steps: 2000,
             steps: 10000,
             sample_every: 50,
             seed: 2026,
             integrator: "velocity-verlet".into(),
+            force: Force::Cells,
         }
     }
 }
@@ -78,6 +82,11 @@ impl RunConfig {
                 return Err(format!("{field} must be finite and positive").into());
             }
         }
+        if let Some(target) = self.ramp_to {
+            if !target.is_finite() || target < self.temperature {
+                return Err("ramp_to must be finite and at least temperature".into());
+            }
+        }
         if self.sample_every == 0 || self.steps < self.sample_every {
             return Err("run must save at least one production frame".into());
         }
@@ -113,6 +122,7 @@ pub fn initial_state(config: &RunConfig) -> Result<State> {
         positions,
         velocities,
         box_size: Some(config.box_size),
+        force: config.force,
     };
     rescale(&mut state, config.temperature)?;
     Ok(state)
@@ -134,6 +144,7 @@ impl Frame {
             positions: self.pos.clone(),
             velocities: self.vel.clone(),
             box_size: Some(config.box_size),
+            force: config.force,
         }
     }
 }
@@ -185,10 +196,18 @@ pub fn write_run(config: &RunConfig, out: &Path) -> Result<()> {
             rescale(&mut state, config.temperature)?;
         }
     }
+    if config.ramp_to.is_some() {
+        rescale(&mut state, config.temperature)?;
+    }
     for step in 1..=config.steps {
         VelocityVerlet
             .step(&mut state, config.dt)
             .map_err(|e| format!("production step {step}: {e}"))?;
+        if let Some(end) = config.ramp_to {
+            let fraction = step as f64 / config.steps as f64;
+            let target = (1.0 - fraction) * config.temperature + fraction * end;
+            rescale(&mut state, target).map_err(|e| format!("production step {step}: {e}"))?;
+        }
         if step % config.sample_every == 0 {
             let frame = Frame {
                 step,
