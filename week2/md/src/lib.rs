@@ -2,6 +2,14 @@ pub fn greeting() -> &'static str {
     "Hello, world!"
 }
 
+pub fn lennard_jones_energy(r: f64) -> f64 {
+    4.0 * (r.powi(-12) - r.powi(-6))
+}
+
+pub fn lennard_jones_force(_r: f64) -> f64 {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::greeting;
