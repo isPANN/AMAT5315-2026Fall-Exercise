@@ -28,3 +28,7 @@ uses mean(v²)/2. Check recomputes energy and speed statistics from saved states
 unsuccessfully if data are malformed or any of the three physical checks fails.
 The video shows the cumulative 100-bin RDF, its long-range contrast, and one image per
 saved state at 30 fps. Generated files are excluded from Git.
+
+## Pages
+
+[Open the molecular dynamics viewer](https://ispann.github.io/AMAT5315-2026Fall-Exercise/).
