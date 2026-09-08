@@ -1,4 +1,4 @@
-use md::{ForwardEuler, INITIAL_STATE, VelocityVerlet, run};
+use md::{ForwardEuler, VelocityVerlet, dimer_state, run};
 use plotters::prelude::*;
 use std::{
     error::Error,
@@ -8,8 +8,8 @@ use std::{
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let euler = run(&ForwardEuler, INITIAL_STATE, 0.01, 500);
-    let verlet = run(&VelocityVerlet, INITIAL_STATE, 0.01, 5000);
+    let euler = run(&ForwardEuler, dimer_state(), 0.01, 500)?;
+    let verlet = run(&VelocityVerlet, dimer_state(), 0.01, 5000)?;
     let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let csv_path = directory.join("energy_error.csv");
     let png_path = directory.join("energy_error.png");
