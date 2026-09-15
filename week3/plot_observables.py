@@ -2,6 +2,7 @@
 
 import json
 from collections import defaultdict
+from math import log, sinh, sqrt
 from pathlib import Path
 
 import matplotlib
@@ -36,24 +37,29 @@ for (size, temperature), (count, sum_abs_m, sum_m2) in samples.items():
     series[size].append((temperature, mean_abs_m, susceptibility))
 
 plt.rcParams.update({"font.size": 11, "axes.spines.top": False, "axes.spines.right": False})
+colors = {32: "#176ca4", 64: "#b64b32"}
 
-def draw(column, ylabel, output):
-    fig, axis = plt.subplots(figsize=(7.4, 4.8), layout="constrained")
-    for size, values in sorted(series.items()):
-        values.sort()
-        axis.plot(
-            [value[0] for value in values],
-            [value[column] for value in values],
-            marker="o",
-            markersize=4,
-            linewidth=1.8,
-            label=f"L = {size}",
-        )
-    axis.set(xlabel="Temperature T", ylabel=ylabel)
-    axis.grid(color="#dedede", linewidth=0.7)
-    axis.legend(frameon=False)
-    fig.savefig(root / "evidence" / output, dpi=200)
+values = sorted(series[64])
+temperatures = [values[0][0] + i * (values[-1][0] - values[0][0]) / 499 for i in range(500)]
+critical = 2 / log(1 + sqrt(2))
+onsager = [(1 - sinh(2 / temperature) ** -4) ** (1 / 8) if temperature < critical else 0
+           for temperature in temperatures]
+fig, axis = plt.subplots(figsize=(7.4, 4.8), layout="constrained")
+axis.plot([value[0] for value in values], [value[1] for value in values], marker="o",
+          markersize=4, linewidth=1.8, color=colors[64], label="Metropolis, L = 64")
+axis.plot(temperatures, onsager, color="#333333", linestyle="--", linewidth=1.8,
+          label=r"Onsager, $L \to \infty$")
+axis.set(xlabel="Temperature T", ylabel=r"Mean absolute magnetization $\langle |M| \rangle$")
+axis.grid(color="#dedede", linewidth=0.7)
+axis.legend(frameon=False)
+fig.savefig(root / "evidence" / "magnetization.png", dpi=200)
 
-
-draw(1, r"Mean absolute magnetization $\langle |M| \rangle$", "magnetization.png")
-draw(2, r"Absolute-magnetization susceptibility $\chi_{|M|}$", "susceptibility.png")
+fig, axis = plt.subplots(figsize=(7.4, 4.8), layout="constrained")
+for size, values in sorted(series.items()):
+    values.sort()
+    axis.plot([value[0] for value in values], [value[2] for value in values], marker="o",
+              markersize=4, linewidth=1.8, color=colors[size], label=f"L = {size}")
+axis.set(xlabel="Temperature T", ylabel=r"Susceptibility $\chi(T)$")
+axis.grid(color="#dedede", linewidth=0.7)
+axis.legend(frameon=False)
+fig.savefig(root / "evidence" / "susceptibility.png", dpi=200)
