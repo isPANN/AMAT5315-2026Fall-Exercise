@@ -29,21 +29,24 @@ slope = 1 / temperatures[0] - 1 / temperatures[1]
 intercept = np.mean(log_ratio - slope * centers[eligible])
 
 plt.rcParams.update({"font.size": 11, "axes.spines.top": False, "axes.spines.right": False})
-fig, (histogram, ratio) = plt.subplots(2, 1, figsize=(7.4, 7.2), sharex=True, layout="constrained")
+fig, (histogram, ratio) = plt.subplots(1, 2, figsize=(9.2, 4.2), layout="constrained")
 colors = ("#176ca4", "#b64b32")
 for temperature, count, color in zip(temperatures, counts, colors):
     histogram.stairs(count, edges, label=f"T = {temperature:.1f}", color=color, linewidth=2)
-histogram.set(ylabel="Rows per 40-unit bin", title="Ising total-energy distributions")
+histogram.set(xlabel="Total energy E", ylabel="Sweeps per 40-unit bin")
 histogram.legend(frameon=False)
 
 x = centers[eligible]
-ratio.scatter(x, log_ratio, color="#333333", s=24, label="Bins with at least 5 rows in each run")
-ratio.plot(x, intercept + slope * x, color="#6a3d9a", linewidth=2,
+ratio.scatter(x, log_ratio, color="#36588c", s=24, label="At least 5 sweeps in each bin")
+ratio.plot(x, intercept + slope * x, color="#555555", linewidth=1.5, linestyle="--",
            label=rf"Slope $1/3.0 - 1/3.1 = {slope:.5f}$")
 ratio.axhline(0, color="#aaaaaa", linewidth=0.8)
-ratio.set(xlabel="Total energy", ylabel=r"$\log[N_{3.1}(E)/N_{3.0}(E)]$")
+ratio.set(xlabel="Total energy E", ylabel=r"$\ln[P_{3.1}(E)/P_{3.0}(E)]$", ylim=(-3.2, 3.2))
 ratio.legend(frameon=False)
+view = (np.floor((x.min() - width) / 100) * 100, np.ceil((x.max() + width) / 100) * 100)
 for axis in (histogram, ratio):
+    axis.set_xlim(view)
+    axis.set_xticks(np.arange(view[0], view[1] + 1, 200))
     axis.grid(color="#dedede", linewidth=0.7)
 
 (root / "evidence").mkdir(exist_ok=True)
