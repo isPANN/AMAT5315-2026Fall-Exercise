@@ -1,6 +1,7 @@
 use std::{env, fs, io, path::PathBuf, process};
 
 struct Args {
+    update: String,
     l: usize,
     t_from: f64,
     t_to: f64,
@@ -50,10 +51,12 @@ fn parse_args() -> Result<Args, String> {
             return Err(format!("unknown argument {}", raw[i]));
         }
     }
-    if value(&raw, "--update")? != "metropolis" {
-        return Err("--update must be metropolis".into());
+    let update = value(&raw, "--update")?;
+    if update != "metropolis" && update != "wolff" {
+        return Err("--update must be metropolis or wolff".into());
     }
     let args = Args {
+        update: update.into(),
         l: parse(&raw, "--l")?,
         t_from: parse(&raw, "--t-from")?,
         t_to: parse(&raw, "--t-to")?,
@@ -115,17 +118,23 @@ impl Rng {
     }
 }
 
-fn sweep(spins: &mut [i8], l: usize, t: f64, rng: &mut Rng, m: &mut i64, e: &mut i64) -> u64 {
+fn neighbors(i: usize, l: usize) -> [usize; 4] {
+    let row = i / l;
+    let col = i % l;
+    [
+        row * l + (col + 1) % l,
+        row * l + (col + l - 1) % l,
+        ((row + 1) % l) * l + col,
+        ((row + l - 1) % l) * l + col,
+    ]
+}
+
+fn metropolis(spins: &mut [i8], l: usize, t: f64, rng: &mut Rng, m: &mut i64, e: &mut i64) -> u64 {
     let mut accepted = 0;
     for _ in 0..spins.len() {
         let i = rng.index(spins.len());
-        let row = i / l;
-        let col = i % l;
-        let neighbors = spins[row * l + (col + 1) % l] as i64
-            + spins[row * l + (col + l - 1) % l] as i64
-            + spins[((row + 1) % l) * l + col] as i64
-            + spins[((row + l - 1) % l) * l + col] as i64;
-        let delta_e = 2 * spins[i] as i64 * neighbors;
+        let neighbor_sum: i64 = neighbors(i, l).map(|j| spins[j] as i64).iter().sum();
+        let delta_e = 2 * spins[i] as i64 * neighbor_sum;
         if delta_e <= 0 || rng.unit() < (-delta_e as f64 / t).exp() {
             let old = spins[i] as i64;
             spins[i] = -spins[i];
@@ -135,6 +144,41 @@ fn sweep(spins: &mut [i8], l: usize, t: f64, rng: &mut Rng, m: &mut i64, e: &mut
         }
     }
     accepted
+}
+
+fn wolff(spins: &mut [i8], l: usize, t: f64, rng: &mut Rng, m: &mut i64, e: &mut i64) -> u64 {
+    let seed = rng.index(spins.len());
+    let cluster_spin = spins[seed];
+    let bond_probability = 1.0 - (-2.0 / t).exp();
+    let mut included = vec![false; spins.len()];
+    let mut cluster = vec![seed];
+    included[seed] = true;
+    let mut cursor = 0;
+    while cursor < cluster.len() {
+        for neighbor in neighbors(cluster[cursor], l) {
+            if !included[neighbor]
+                && spins[neighbor] == cluster_spin
+                && rng.unit() < bond_probability
+            {
+                included[neighbor] = true;
+                cluster.push(neighbor);
+            }
+        }
+        cursor += 1;
+    }
+
+    let mut delta_e = 0;
+    for &i in &cluster {
+        for neighbor in neighbors(i, l) {
+            if !included[neighbor] {
+                delta_e += 2 * spins[i] as i64 * spins[neighbor] as i64;
+            }
+        }
+        spins[i] = -spins[i];
+    }
+    *m -= 2 * cluster_spin as i64 * cluster.len() as i64;
+    *e += delta_e;
+    cluster.len() as u64
 }
 
 fn temperatures(from: f64, to: f64, step: f64) -> Vec<f64> {
@@ -148,11 +192,22 @@ fn temperatures(from: f64, to: f64, step: f64) -> Vec<f64> {
 fn run(args: Args) -> io::Result<()> {
     fs::create_dir_all(&args.out)?;
     let grid = temperatures(args.t_from, args.t_to, args.t_step);
+    let is_metropolis = args.update == "metropolis";
+    let update = if is_metropolis {
+        metropolis as fn(&mut [i8], usize, f64, &mut Rng, &mut i64, &mut i64) -> u64
+    } else {
+        wolff
+    };
+    let time_unit = if is_metropolis {
+        "sweep"
+    } else {
+        "cluster_flip"
+    };
     fs::write(
         args.out.join("run.json"),
         format!(
-            "{{\"L\":{},\"update\":\"metropolis\",\"t_grid\":{:?},\"discard\":{},\"measure\":{},\"seed\":{},\"sample_every\":1,\"time_unit\":\"sweep\"}}\n",
-            args.l, grid, args.discard, args.measure, args.seed
+            "{{\"L\":{},\"update\":\"{}\",\"t_grid\":{:?},\"discard\":{},\"measure\":{},\"seed\":{},\"sample_every\":1,\"time_unit\":\"{}\"}}\n",
+            args.l, args.update, grid, args.discard, args.measure, args.seed, time_unit
         ),
     )?;
 
@@ -165,11 +220,18 @@ fn run(args: Args) -> io::Result<()> {
     let mut rng = Rng(args.seed);
     let mut total_sweeps = 0_u64;
 
-    println!("T\tmean_abs_M\tacceptance_rate");
+    println!(
+        "T\tmean_abs_M\t{}",
+        if is_metropolis {
+            "acceptance_rate"
+        } else {
+            "mean_cluster_size"
+        }
+    );
     for &t in &grid {
-        let mut accepted = 0_u64;
+        let mut update_total = 0_u64;
         for _ in 0..args.discard {
-            accepted += sweep(
+            update_total += update(
                 &mut spins,
                 args.l,
                 t,
@@ -181,7 +243,7 @@ fn run(args: Args) -> io::Result<()> {
         }
         let mut mean_abs_m = 0.0;
         for measured_sweep in 1..=args.measure {
-            accepted += sweep(
+            let update_size = update(
                 &mut spins,
                 args.l,
                 t,
@@ -189,14 +251,22 @@ fn run(args: Args) -> io::Result<()> {
                 &mut magnetization,
                 &mut energy,
             );
+            update_total += update_size;
             total_sweeps += 1;
             let m = magnetization as f64 / sites as f64;
             let e = energy as f64 / sites as f64;
             mean_abs_m += m.abs();
-            series.push_str(&format!(
-                "{{\"L\":{},\"T\":{:.6},\"sweep\":{},\"M\":{:.6},\"E\":{:.6}}}\n",
-                args.l, t, measured_sweep, m, e
-            ));
+            if is_metropolis {
+                series.push_str(&format!(
+                    "{{\"L\":{},\"T\":{:.6},\"sweep\":{},\"M\":{:.6},\"E\":{:.6}}}\n",
+                    args.l, t, measured_sweep, m, e
+                ));
+            } else {
+                series.push_str(&format!(
+                    "{{\"L\":{},\"T\":{:.6},\"sweep\":{},\"M\":{:.6},\"E\":{:.6},\"cluster_size\":{}}}\n",
+                    args.l, t, measured_sweep, m, e, update_size
+                ));
+            }
             if args.every > 0 && measured_sweep % args.every == 0 {
                 frames.push_str(&format!(
                     "{{\"L\":{},\"T\":{:.6},\"sweep\":{},\"m\":{:.6},\"spins\":{:?}}}\n",
@@ -204,12 +274,17 @@ fn run(args: Args) -> io::Result<()> {
                 ));
             }
         }
-        let proposals = (args.discard + args.measure) as f64 * sites as f64;
+        let steps = (args.discard + args.measure) as f64;
+        let update_statistic = if is_metropolis {
+            update_total as f64 / (steps * sites as f64)
+        } else {
+            update_total as f64 / steps
+        };
         println!(
             "{:.6}\t{:.6}\t{:.6}",
             t,
             mean_abs_m / args.measure as f64,
-            accepted as f64 / proposals
+            update_statistic
         );
     }
     fs::write(args.out.join("series.jsonl"), series)?;
@@ -232,26 +307,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sweep_keeps_incremental_observables_consistent() {
-        let l = 5;
-        let mut spins = vec![1; l * l];
-        let mut m = (l * l) as i64;
-        let mut e = -2 * m;
+    fn updates_keep_incremental_observables_consistent() {
         let mut rng = Rng(2026);
-        for _ in 0..20 {
-            sweep(&mut spins, l, 2.3, &mut rng, &mut m, &mut e);
+        for l in [2, 5] {
+            let mut spins = vec![1; l * l];
+            let mut m = (l * l) as i64;
+            let mut e = -2 * m;
+            for _ in 0..20 {
+                metropolis(&mut spins, l, 2.3, &mut rng, &mut m, &mut e);
+                let cluster_size = wolff(&mut spins, l, 2.3, &mut rng, &mut m, &mut e);
+                assert!((1..=l as u64 * l as u64).contains(&cluster_size));
+            }
+            let direct_m: i64 = spins.iter().map(|&s| s as i64).sum();
+            let direct_e: i64 = (0..l * l)
+                .map(|i| {
+                    -(spins[i] as i64)
+                        * (spins[neighbors(i, l)[0]] as i64 + spins[neighbors(i, l)[2]] as i64)
+                })
+                .sum();
+            assert_eq!((m, e), (direct_m, direct_e));
         }
-        let direct_m: i64 = spins.iter().map(|&s| s as i64).sum();
-        let direct_e: i64 = (0..l * l)
-            .map(|i| {
-                let row = i / l;
-                let col = i % l;
-                -(spins[i] as i64)
-                    * (spins[row * l + (col + 1) % l] as i64
-                        + spins[((row + 1) % l) * l + col] as i64)
-            })
-            .sum();
-        assert_eq!((m, e), (direct_m, direct_e));
     }
 
     #[test]
