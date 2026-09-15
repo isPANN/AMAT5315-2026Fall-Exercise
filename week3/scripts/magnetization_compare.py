@@ -9,6 +9,7 @@ import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 root = Path(__file__).parents[1]
 
@@ -34,37 +35,47 @@ if metropolis_metadata["update"] != "metropolis" or any(
 ):
     raise RuntimeError("unexpected update method")
 
-block_length = 4000
 replicates = 500
 rng = np.random.default_rng(2026)
 
 
-def mean_and_error(samples):
-    means = []
-    errors = []
-    for temperature in sorted(samples):
-        values = samples[temperature]
-        blocks = values.reshape(-1, block_length).mean(axis=1)
-        bootstrap = blocks[rng.integers(0, len(blocks), size=(replicates, len(blocks)))].mean(axis=1)
-        means.append(values.mean())
-        errors.append(bootstrap.std(ddof=1))
-    return np.array(means), np.array(errors)
+def bootstrap_error(values, block_length):
+    count = len(values)
+    full, remainder = divmod(count, block_length)
+    starts = rng.integers(0, count, size=(replicates, full + bool(remainder)))
+    wrapped = np.concatenate((values, values[:block_length]))
+    prefix = np.concatenate(([0.0], np.cumsum(wrapped)))
+    block_sums = prefix[np.arange(count) + block_length] - prefix[np.arange(count)]
+    totals = block_sums[starts[:, :full]].sum(axis=1)
+    if remainder:
+        remainder_sums = prefix[np.arange(count) + remainder] - prefix[np.arange(count)]
+        totals += remainder_sums[starts[:, -1]]
+    return (totals / count).std(ddof=1)
 
 
 plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False})
 fig, (magnetization, susceptibility) = plt.subplots(1, 2, figsize=(12.0, 4.8), layout="constrained")
 colors = {32: "#176ca4", 64: "#b64b32"}
+algorithm_handles = []
 for label, samples, color in (
     ("Metropolis", metropolis, "#6a3d9a"),
     ("Wolff", wolff_runs[64][1], colors[64]),
 ):
     temperatures = np.array(sorted(samples))
-    means, errors = mean_and_error(samples)
-    magnetization.errorbar(temperatures, means, yerr=errors, marker="o", markersize=4,
-                           linewidth=1.5, capsize=3, color=color, label=label)
+    means = np.array([samples[temperature].mean() for temperature in temperatures])
+    algorithm_handles += magnetization.plot(temperatures, means, color=color, linewidth=1.5,
+                                              label=label)
+    for offset, block_length, marker in zip((-0.006, 0, 0.006), (2000, 4000, 8000), ("o", "s", "^")):
+        errors = [bootstrap_error(samples[temperature], block_length) for temperature in temperatures]
+        magnetization.errorbar(temperatures + offset, means, yerr=errors, color=color, marker=marker,
+                               linestyle="none", markersize=3.5, capsize=2, alpha=0.85)
 magnetization.set(xlabel="Temperature T", ylabel=r"Mean absolute magnetization $\langle |M| \rangle$",
                   title="L = 64")
-magnetization.legend(frameon=False)
+block_handles = [
+    Line2D([], [], color="#333333", marker=marker, linestyle="none", label=f"Block {length}")
+    for length, marker in zip((2000, 4000, 8000), ("o", "s", "^"))
+]
+magnetization.legend(handles=algorithm_handles + block_handles, frameon=False, ncol=2)
 
 peaks = {}
 for size, (_, samples) in wolff_runs.items():
