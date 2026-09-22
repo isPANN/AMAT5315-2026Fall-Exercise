@@ -1,10 +1,11 @@
 # /// script
-# dependencies = ["numpy"]
+# dependencies = ["matplotlib", "numpy"]
 # ///
 
 import json
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -33,7 +34,7 @@ for dt in steps:
     errors.append(error)
     print(f"RK4 dt={dt:g}: relative omega error = {error:.17e}")
 errors = np.asarray(errors)
-slope = np.polyfit(np.log(steps), np.log(errors), 1)[0]
+slope, intercept = np.polyfit(np.log(steps), np.log(errors), 1)
 assert 3.5 < slope < 4.5
 print(f"fitted log-log slope = {slope:.17e}")
 
@@ -51,3 +52,43 @@ output = ROOT / "evidence" / "convergence.json"
 output.parent.mkdir(exist_ok=True)
 output.write_text(json.dumps(result, indent=2) + "\n")
 print(output)
+
+richardson_at_001 = (
+    np.linalg.norm(final_vorticity("0.01") - final_vorticity("0.02"))
+    / 15
+    / np.linalg.norm(reference)
+)
+predicted = richardson_at_001 * (steps / 0.01) ** 4
+eligible = np.flatnonzero(predicted < 5e-6)
+chosen = eligible[np.argmax(steps[eligible])]
+assert steps[chosen] == 0.0125
+print(
+    f"chosen dt={steps[chosen]:g}: predicted error = {predicted[chosen]:.17e}, "
+    f"measured error = {errors[chosen]:.17e}"
+)
+
+fit_steps = np.geomspace(steps.min(), steps.max(), 100)
+fig, ax = plt.subplots(figsize=(6.4, 4.8), constrained_layout=True)
+ax.loglog(steps, errors, "o", label="measured errors")
+ax.loglog(
+    fit_steps,
+    np.exp(intercept) * fit_steps**slope,
+    "--",
+    label=rf"log-log fit, slope {slope:.2f}",
+)
+ax.scatter(
+    steps[chosen],
+    errors[chosen],
+    s=150,
+    facecolors="none",
+    edgecolors="tab:red",
+    linewidths=2,
+    label=rf"chosen $\Delta t={steps[chosen]:g}$",
+)
+ax.set(xlabel=r"time step $\Delta t$", ylabel=r"relative vorticity error")
+ax.grid(which="both", alpha=0.25)
+ax.legend(frameon=False)
+
+figure = ROOT / "evidence" / "convergence.png"
+fig.savefig(figure, dpi=220)
+print(figure)
