@@ -1,0 +1,23 @@
+{
+  "quantity": "omega",
+  "time": 2.0,
+  "reference": {
+    "dt": 0.0025,
+    "relative_error": 0.0
+  },
+  "runs": [
+    {
+      "dt": 0.02,
+      "relative_error": 2.6257034430604102e-05
+    },
+    {
+      "dt": 0.0125,
+      "relative_error": 3.950424207075614e-06
+    },
+    {
+      "dt": 0.01,
+      "relative_error": 1.6116255585093215e-06
+    }
+  ],
+  "fitted_log_log_slope": 4.026714298501284
+}
