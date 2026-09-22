@@ -27,3 +27,7 @@ path = "scripts/accuracy_data.rs"
 [[bin]]
 name = "differentiation-check"
 path = "scripts/differentiation_check.rs"
+
+[[bin]]
+name = "sensitivity-data"
+path = "scripts/sensitivity_data.rs"
