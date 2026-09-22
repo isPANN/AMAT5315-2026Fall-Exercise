@@ -14,6 +14,16 @@ SCAN = ROOT / "artifacts" / "scan"
 initial = json.loads((SCAN / "random-initial.json").read_text())
 largest_speed = np.hypot(initial["u"], initial["v"]).max()
 print(f"largest speed of random initial field: {largest_speed:.17e}")
+stable_dt = (SCAN / "selected-random-rk4.txt").read_text().strip()
+
+
+def diagnostics(name):
+    return np.genfromtxt(SCAN / f"{name}.tsv", names=True, delimiter="\t", ndmin=1)
+
+
+assert np.all(np.isfinite(diagnostics(f"random-rk4-{stable_dt}")["E"]))
+assert not np.isfinite(diagnostics("random-rk4-0.038")["E"][-1])
+assert not np.isfinite(diagnostics("random-euler-0.01")["E"][-1])
 
 cases = {
     "Taylor–Green, $n=64$, $\\nu=0.1$": [
@@ -21,8 +31,8 @@ cases = {
         ("taylor-rk4-0.033", "RK4, $\\Delta t=0.033$"),
     ],
     "Random, $n=128$, $\\nu=0.004$": [
+        (f"random-rk4-{stable_dt}", rf"RK4, $\Delta t={stable_dt}$"),
         ("random-rk4-0.038", "RK4, $\\Delta t=0.038$"),
-        ("random-rk4-0.040", "RK4, $\\Delta t=0.040$"),
         ("random-euler-0.01", "Euler, $\\Delta t=0.01$"),
     ],
 }
@@ -30,7 +40,7 @@ cases = {
 fig, axes = plt.subplots(1, 2, figsize=(13, 5.2), constrained_layout=True)
 for ax, (title, runs) in zip(axes, cases.items()):
     for name, label in runs:
-        data = np.genfromtxt(SCAN / f"{name}.tsv", names=True, delimiter="\t", ndmin=1)
+        data = diagnostics(name)
         finite = np.isfinite(data["E"]) & (data["E"] > 0)
         line = ax.semilogy(data["t"][finite], data["E"][finite], marker="o", label=label)[0]
         if not np.isfinite(data["E"][-1]):
