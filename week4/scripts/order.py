@@ -27,11 +27,18 @@ for dt in steps:
     errors.append(error)
     print(f"RK4 dt={dt:g}: relative velocity error = {error:.17e}")
 errors = np.asarray(errors)
-slope = np.polyfit(np.log(steps), np.log(errors), 1)[0]
+slope, intercept = np.polyfit(np.log(steps), np.log(errors), 1)
 assert 3.5 < slope < 4.5
 
 fig, ax = plt.subplots(figsize=(6.4, 4.8), constrained_layout=True)
-ax.loglog(steps, errors, "o-", label=rf"RK4, fitted slope {slope:.2f}")
+fit_steps = np.geomspace(steps.min(), steps.max(), 100)
+ax.loglog(steps, errors, "o", label="RK4 errors")
+ax.loglog(
+    fit_steps,
+    np.exp(intercept) * fit_steps**slope,
+    "--",
+    label=rf"log-log fit, slope {slope:.2f}",
+)
 ax.set(xlabel=r"time step $\Delta t$", ylabel="relative velocity error")
 ax.grid(which="both", alpha=0.25)
 ax.legend(frameon=False)
