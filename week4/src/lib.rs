@@ -9,6 +9,7 @@ pub trait Integrator {
 pub struct ForwardEuler;
 pub struct ExplicitMidpoint;
 pub struct RungeKutta4;
+pub struct EqualWeightRungeKutta4;
 
 fn shifted(state: &[f64], rate: &[f64], scale: f64) -> Vec<f64> {
     assert_eq!(state.len(), rate.len(), "rate must match state length");
@@ -53,6 +54,25 @@ impl Integrator for RungeKutta4 {
             .iter()
             .enumerate()
             .map(|(i, value)| value + step_size * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]) / 6.0)
+            .collect()
+    }
+}
+
+impl Integrator for EqualWeightRungeKutta4 {
+    fn step<F>(&self, state: &[f64], step_size: f64, rate: F) -> Vec<f64>
+    where
+        F: Fn(&[f64]) -> Vec<f64>,
+    {
+        let k1 = rate(state);
+        let k2 = rate(&shifted(state, &k1, step_size / 2.0));
+        let k3 = rate(&shifted(state, &k2, step_size / 2.0));
+        let k4 = rate(&shifted(state, &k3, step_size));
+        assert_eq!(state.len(), k4.len(), "rate must match state length");
+
+        state
+            .iter()
+            .enumerate()
+            .map(|(i, value)| value + step_size * (k1[i] + k2[i] + k3[i] + k4[i]) / 4.0)
             .collect()
     }
 }
@@ -152,6 +172,12 @@ mod tests {
     fn runge_kutta_four_advances_a_single_wave() {
         let error = maximum_error(RungeKutta4);
         assert!(error < 2.0e-10, "maximum error: {error}");
+    }
+
+    #[test]
+    fn equal_weight_runge_kutta_advances_a_single_wave() {
+        let error = maximum_error(EqualWeightRungeKutta4);
+        assert!(error < 5.0e-6, "maximum error: {error}");
     }
 
     #[test]
