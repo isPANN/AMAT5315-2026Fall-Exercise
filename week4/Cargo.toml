@@ -8,3 +8,7 @@ edition = "2024"
 [[bin]]
 name = "stability-data"
 path = "scripts/stability_data.rs"
+
+[[bin]]
+name = "accuracy-data"
+path = "scripts/accuracy_data.rs"

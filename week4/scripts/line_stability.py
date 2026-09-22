@@ -21,7 +21,15 @@ raw = subprocess.run(
 ).stdout.splitlines()
 width, height = map(int, raw[0].split()[:2])
 x_min, x_max, y_min, y_max = map(float, raw[0].split()[2:])
-growth = np.loadtxt(raw[1:]).reshape(height, width)
+growth = np.loadtxt(raw[1 : height + 1]).reshape(height, width)
+trajectories = {}
+cursor = height + 1
+while cursor < len(raw):
+    _, step, rows, points = raw[cursor].split()
+    rows, points = int(rows), int(points)
+    values = np.loadtxt(raw[cursor + 1 : cursor + rows + 1])
+    trajectories[float(step)] = (values[:, 0], values[:, 1:].reshape(rows, points))
+    cursor += rows + 1
 
 x = np.linspace(x_min, x_max, width)
 y = np.linspace(y_min, y_max, height)
@@ -34,12 +42,19 @@ stability = {
 assert np.allclose(growth, np.abs(stability["RK4"]), rtol=1e-12, atol=1e-12)
 line_colours = ["#67e8f9", "#fbbf24", "#f472b6"]
 
-fig, ax = plt.subplots(figsize=(8.2, 10), constrained_layout=True)
+fig, axes = plt.subplots(
+    1,
+    3,
+    figsize=(17, 6.8),
+    constrained_layout=True,
+    gridspec_kw={"width_ratios": [0.7, 1, 1]},
+)
+ax = axes[0]
 image = ax.imshow(
     np.maximum(growth, 1e-3),
     origin="lower",
     extent=(x_min, x_max, y_min, y_max),
-    cmap="magma",
+    cmap="RdBu_r",
     norm=LogNorm(vmin=1e-2, vmax=1e2),
     interpolation="bilinear",
     aspect="equal",
@@ -84,21 +99,45 @@ legend += [
     )
     for step, colour, marker in step_styles
 ]
-ax.legend(handles=legend, loc="upper right", framealpha=0.94)
+ax.legend(handles=legend, loc="upper right", fontsize=8, framealpha=0.94)
 ax.axhline(0, color="white", alpha=0.28, linewidth=0.8)
 ax.axvline(0, color="white", alpha=0.28, linewidth=0.8)
 ax.set(
     xlabel=r"$\operatorname{Re}(z)$",
     ylabel=r"$\operatorname{Im}(z)$",
-    title=(
-        r"Measured RK4 growth $|R(z)|$ and stability boundaries"
-        "\n"
-        r"Fourier advection–diffusion modes: $n=64$, $c=1$, $\nu=0.05$"
-    ),
+    title=r"(a) Stability in the $z$-plane",
 )
-colourbar = fig.colorbar(image, ax=ax, shrink=0.82, pad=0.04)
+colourbar = fig.colorbar(image, ax=ax, shrink=0.8, pad=0.03)
 colourbar.set_label(r"Growth factor per step $|R_{\mathrm{RK4}}(z)|$")
 colourbar.set_ticks([1e-2, 1e-1, 1, 10, 100])
+
+space = np.arange(n) * 2 * np.pi / n
+solution_images = []
+for panel, (step, (times, states)) in enumerate(trajectories.items(), start=1):
+    solution_images.append(
+        axes[panel].pcolormesh(
+            space,
+            times,
+            states,
+            shading="auto",
+            cmap="RdBu_r",
+            vmin=-1,
+            vmax=1,
+        )
+    )
+    axes[panel].invert_yaxis()
+    axes[panel].set(
+        xlabel=r"$x$",
+        ylabel=r"$t$",
+        title=f"({chr(97 + panel)}) RK4, $\\Delta t={step:.3f}$",
+        xticks=[0, np.pi, 2 * np.pi],
+        xticklabels=["0", r"$\pi$", r"$2\pi$"],
+    )
+fig.colorbar(solution_images[-1], ax=axes[1:], shrink=0.8, pad=0.03, label=r"$u(x,t)$")
+fig.suptitle(
+    r"Fourier advection–diffusion: $n=64$, $c=1$, $\nu=0.05$",
+    fontsize=15,
+)
 
 output = ROOT / "evidence" / "line-stability.png"
 output.parent.mkdir(exist_ok=True)
