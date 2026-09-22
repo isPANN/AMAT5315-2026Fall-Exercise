@@ -95,6 +95,32 @@ impl SpectralGrid {
         self.inverse(self.filtered_spectrum(values))
     }
 
+    pub fn derivatives(&self, values: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+        let spectrum = self.filtered_spectrum(values);
+        let mut dx = spectrum.clone();
+        let mut dxx = spectrum.clone();
+        let mut dxdy = spectrum.clone();
+        let mut laplacian = spectrum.clone();
+        for y in 0..self.n {
+            let ky = self.wave_number(y) as f64;
+            for x in 0..self.n {
+                let kx = self.wave_number(x) as f64;
+                let i = y * self.n + x;
+                let value = spectrum[i];
+                dx[i] = Complex64::new(-kx * value.im, kx * value.re);
+                dxx[i] = -kx * kx * value;
+                dxdy[i] = -kx * ky * value;
+                laplacian[i] = -(kx * kx + ky * ky) * value;
+            }
+        }
+        (
+            self.inverse(dx),
+            self.inverse(dxx),
+            self.inverse(dxdy),
+            self.inverse(laplacian),
+        )
+    }
+
     pub fn velocity_from_vorticity(&self, omega: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let omega_hat = self.filtered_spectrum(omega);
         let mut u_hat = vec![Complex64::default(); omega_hat.len()];
