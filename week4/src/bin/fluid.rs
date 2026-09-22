@@ -184,9 +184,7 @@ fn run() -> Result<bool, String> {
             .sum::<f64>()
             / size as f64;
         let enstrophy = omega.iter().map(|omega| 0.5 * omega * omega).sum::<f64>() / size as f64;
-        let on_step_grid =
-            (time - step as f64 * args.dt).abs() <= 16.0 * f64::EPSILON * time.abs().max(1.0);
-        let snapshot = step.is_multiple_of(args.snapshot_steps) && on_step_grid;
+        let snapshot = step.is_multiple_of(args.snapshot_steps);
         if snapshot || !energy.is_finite() {
             println!("{time:.6}\t{energy:.12e}\t{enstrophy:.12e}");
         }

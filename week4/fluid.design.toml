@@ -5,7 +5,7 @@ method = "time integrator: euler, rk2, or rk4"
 nu = "kinematic viscosity"
 dt = "time step"
 t-end = "final integration time"
-every = "time between stored snapshots from t = 0, a whole number of steps of dt(rounded); a step is never shortened to land on a snapshot"
+every = "time between snapshots; save at step 0 and every round(every/dt) steps after that; a step is never shortened to land on a snapshot"
 out = "output folder"
 [writes]
 stdout = "a header, then one tab-separated line per snapshot: t, E (energy), Z(enstrophy); the run stops at the first non-finite energy, prints that line, and exits 1"
