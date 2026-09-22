@@ -1,5 +1,7 @@
 use std::f64::consts::TAU;
 
+pub mod vorticity;
+
 pub trait Integrator {
     fn step<F>(&self, state: &[f64], step_size: f64, rate: F) -> Vec<f64>
     where
