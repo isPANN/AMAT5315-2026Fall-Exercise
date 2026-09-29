@@ -2,3 +2,4 @@ inputs/
 *.npy
 __pycache__/
 seismic/target/
+artifacts/forward/

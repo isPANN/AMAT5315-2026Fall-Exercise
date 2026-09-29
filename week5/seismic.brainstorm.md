@@ -36,7 +36,7 @@ integer-centered shots in both supplied experiments. Sample receivers from
   of `c^2*L` is `L(c^2*·)`. This image is `JᵀJ*perturbation`, where `J` maps a
   velocity perturbation to scattered traces.
 
-For forward `--recording-every k`, record the first shot after updates
+For forward `--every k`, record the first shot after updates
 `k, 2k, ...`; adjoint recording follows decreasing steps as specified in the
 TOML. Store frame steps and times `step*dt` in `run.json`. Process shots one
 at a time. The Marmousi grid has 216,545 cells; a full `f64` wavefield history

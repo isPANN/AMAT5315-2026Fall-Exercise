@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "--experiment" => experiment_path = Some(value.into()),
             "--mode" => mode = Some(value),
             "--out" => out = Some(value.into()),
-            "--recording-every" => recording_every = Some(value.parse::<usize>()?),
+            "--every" => recording_every = Some(value.parse::<usize>()?),
             _ => return Err(format!("unknown option {flag}").into()),
         }
     }
@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err(format!("mode {mode} is not implemented").into());
     }
     if recording_every == Some(0) {
-        return Err("--recording-every must be positive".into());
+        return Err("--every must be positive".into());
     }
 
     let raw: Value = serde_json::from_slice(&fs::read(&experiment_path)?)?;

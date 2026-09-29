@@ -1,4 +1,4 @@
-usage = "seismic --experiment inputs/reflector.json --mode forward --out artifacts/forward"
+usage = "seismic --experiment inputs/reflector.json --mode forward --every 3 --out artifacts/forward"
 description = "simulate acoustic waves and their derivatives; no unstated defaults"
 [args]
 experiment = """JSON file with the model and the survey, in reduced units:

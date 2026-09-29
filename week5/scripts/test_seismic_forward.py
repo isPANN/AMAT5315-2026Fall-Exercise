@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory() as temp:
     run = subprocess.run(
         ["cargo", "run", "--quiet", "--manifest-path", str(week / "seismic/Cargo.toml"), "--",
          "--experiment", str(experiment_path), "--mode", "forward", "--out", str(output),
-         "--recording-every", "1"],
+         "--every", "1"],
         check=True,
         capture_output=True,
         text=True,
