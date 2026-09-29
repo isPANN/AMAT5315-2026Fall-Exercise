@@ -1,7 +1,7 @@
 """Run with: uv run --no-project --with numpy --with matplotlib python week5/scripts/compare_checkpoints.py"""
 
 import json
-from collections import Counter
+from itertools import zip_longest
 from pathlib import Path
 
 import matplotlib
@@ -25,8 +25,7 @@ for budget in (1, 3, 5, 10):
     print(f"Budget {budget}: relative L2 error {error:.12e}; "
           f"peak saved states {statistics['peak_saved_states']}")
 
-missing = duplicated = invalid_restores = budget_overruns = 0
-order_violations = 0
+grad_mismatches = invalid_restores = budget_overruns = 0
 files_audited = 0
 for run in sorted({path.parent for path in artifacts.glob("*/actions-*.json")}):
     result = json.loads((run / "result.json").read_text())
@@ -36,7 +35,7 @@ for run in sorted({path.parent for path in artifacts.glob("*/actions-*.json")}):
     assert {path.name for path in files} == {
         shot["actions_file"] for shot in statistics["per_shot"]
     }
-    run_calls = run_grads = 0
+    run_calls = 0
     run_peak = 0
     for path in files:
         shot = int(path.stem.split("-")[1])
@@ -71,27 +70,20 @@ for run in sorted({path.parent for path in artifacts.glob("*/actions-*.json")}):
             assert entry["saved_states"] == len(saved)
             budget_overruns += len(saved) > budget + 1
             peak = max(peak, len(saved))
-        counts = Counter(grads)
-        missing += len(set(range(result["steps"])) - counts.keys())
-        duplicated += sum(count - 1 for count in counts.values() if count > 1)
-        order_violations += sum(next_step != step - 1
-                                for step, next_step in zip(grads, grads[1:]))
+        expected = range(result["steps"] - 1, -1, -1)
+        grad_mismatches += sum(actual != wanted
+                               for actual, wanted in zip_longest(grads, expected))
         assert saved == {0}
         assert calls == shot_stats["scheduler_forward_calls"]
-        assert len(grads) == shot_stats["reverse_calls"]
         assert peak == shot_stats["peak_saved_states"]
         run_calls += calls
-        run_grads += len(grads)
         run_peak = max(run_peak, peak)
         files_audited += 1
     assert run_calls == statistics["scheduler_forward_calls"]
-    assert run_grads == statistics["reverse_calls"]
     assert run_peak == statistics["peak_saved_states"]
 
 print(f"Audited action files: {files_audited}")
-print(f"Missing reverse steps: {missing}")
-print(f"Duplicated reverse steps: {duplicated}")
-print(f"Reverse steps out of descending order: {order_violations}")
+print(f"Grad steps differing from N-1, ..., 0: {grad_mismatches}")
 print(f"Invalid restores: {invalid_restores}")
 print(f"Budget overruns: {budget_overruns}")
 
