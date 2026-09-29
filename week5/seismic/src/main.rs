@@ -22,6 +22,101 @@ struct Experiment {
     shots: Vec<[f64; 2]>,
     receivers: Vec<[usize; 2]>,
     background: Vec<Vec<f64>>,
+    perturbation: Option<Vec<Vec<f64>>>,
+}
+
+unsafe extern "C" {
+    fn seismic_step(
+        previous: *const f64,
+        current: *const f64,
+        speed: *const f64,
+        damping_dt: *const f64,
+        footprint: *const f64,
+        next: *mut f64,
+        nx: usize,
+        nz: usize,
+        inv_dx_sq: f64,
+        dt_sq: f64,
+        pulse: f64,
+    );
+    fn seismic_step_jvp(
+        previous: *const f64,
+        dprevious: *const f64,
+        current: *const f64,
+        dcurrent: *const f64,
+        speed: *const f64,
+        dspeed: *const f64,
+        damping_dt: *const f64,
+        footprint: *const f64,
+        next: *mut f64,
+        dnext: *mut f64,
+        nx: usize,
+        nz: usize,
+        inv_dx_sq: f64,
+        dt_sq: f64,
+        pulse: f64,
+    );
+}
+
+fn advance(
+    previous: &[f64],
+    current: &[f64],
+    speed: &[f64],
+    damping_dt: &[f64],
+    footprint: &[f64],
+    next: &mut [f64],
+    tangent: Option<(&[f64], &[f64], &[f64], &mut [f64])>,
+    nx: usize,
+    nz: usize,
+    inv_dx_sq: f64,
+    dt_sq: f64,
+    pulse: f64,
+) {
+    let cells = nx * nz;
+    for field in [previous, current, speed, damping_dt, footprint, next] {
+        assert_eq!(field.len(), cells);
+    }
+    match tangent {
+        Some((dprevious, dcurrent, dspeed, dnext)) => {
+            for field in [dprevious, dcurrent, dspeed, &*dnext] {
+                assert_eq!(field.len(), cells);
+            }
+            unsafe {
+                seismic_step_jvp(
+                    previous.as_ptr(),
+                    dprevious.as_ptr(),
+                    current.as_ptr(),
+                    dcurrent.as_ptr(),
+                    speed.as_ptr(),
+                    dspeed.as_ptr(),
+                    damping_dt.as_ptr(),
+                    footprint.as_ptr(),
+                    next.as_mut_ptr(),
+                    dnext.as_mut_ptr(),
+                    nx,
+                    nz,
+                    inv_dx_sq,
+                    dt_sq,
+                    pulse,
+                );
+            }
+        }
+        None => unsafe {
+            seismic_step(
+                previous.as_ptr(),
+                current.as_ptr(),
+                speed.as_ptr(),
+                damping_dt.as_ptr(),
+                footprint.as_ptr(),
+                next.as_mut_ptr(),
+                nx,
+                nz,
+                inv_dx_sq,
+                dt_sq,
+                pulse,
+            );
+        },
+    }
 }
 
 fn npy_header(writer: &mut impl Write, dtype: &str, shape: [usize; 3]) -> std::io::Result<()> {
@@ -63,7 +158,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let experiment_path = experiment_path.ok_or("missing --experiment")?;
     let mode = mode.ok_or("missing --mode")?;
     let out = out.ok_or("missing --out")?;
-    if mode != "forward" {
+    if mode != "forward" && mode != "born" {
         return Err(format!("mode {mode} is not implemented").into());
     }
     if recording_every == Some(0) {
@@ -96,15 +191,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     if e.background.len() != e.nz || e.background.iter().any(|row| row.len() != e.nx) {
         return Err("background shape does not match nx and nz".into());
     }
-    let mut speed_sq = Vec::with_capacity(e.nx * e.nz);
+    let mut speed = Vec::with_capacity(e.nx * e.nz);
     let mut max_speed: f64 = 0.0;
-    for &speed in e.background.iter().flatten() {
-        if !speed.is_finite() || speed <= 0.0 {
+    for &value in e.background.iter().flatten() {
+        if !value.is_finite() || value <= 0.0 {
             return Err("background speeds must be finite and positive".into());
         }
-        max_speed = max_speed.max(speed);
-        speed_sq.push(speed * speed);
+        max_speed = max_speed.max(value);
+        speed.push(value);
     }
+    let perturbation = if mode == "born" {
+        let rows = e
+            .perturbation
+            .as_ref()
+            .ok_or("born mode requires perturbation")?;
+        if rows.len() != e.nz || rows.iter().any(|row| row.len() != e.nx) {
+            return Err("perturbation shape does not match nx and nz".into());
+        }
+        let values: Vec<f64> = rows.iter().flatten().copied().collect();
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err("perturbation values must be finite".into());
+        }
+        values
+    } else {
+        Vec::new()
+    };
     if max_speed * e.dt / e.dx > FRAC_1_SQRT_2 {
         return Err("timestep violates the two-dimensional CFL bound".into());
     }
@@ -126,7 +237,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     fs::create_dir_all(&out)?;
-    let mut traces = BufWriter::new(File::create(out.join("traces.npy"))?);
+    let data_name = if mode == "born" {
+        "born_data.npy"
+    } else {
+        "traces.npy"
+    };
+    let mut traces = BufWriter::new(File::create(out.join(data_name))?);
     npy_header(
         &mut traces,
         "<f8",
@@ -154,12 +270,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut previous = vec![0.0; cells];
     let mut current = vec![0.0; cells];
     let mut next = vec![0.0; cells];
+    let mut dprevious = if mode == "born" {
+        vec![0.0; cells]
+    } else {
+        Vec::new()
+    };
+    let mut dcurrent = dprevious.clone();
+    let mut dnext = dprevious.clone();
     let mut footprint = vec![0.0; cells];
     println!("shot\tmode\tdata L2 norm");
     for (shot_index, &[shot_x, shot_z]) in e.shots.iter().enumerate() {
         previous.fill(0.0);
         current.fill(0.0);
         next.fill(0.0);
+        dprevious.fill(0.0);
+        dcurrent.fill(0.0);
+        dnext.fill(0.0);
         for z in 1..e.nz - 1 {
             for x in 1..e.nx - 1 {
                 let radius_sq = (x as f64 - shot_x).powi(2) + (z as f64 - shot_z).powi(2);
@@ -171,34 +297,50 @@ fn main() -> Result<(), Box<dyn Error>> {
             let phase = PI * e.source_frequency * (step as f64 * e.dt - e.source_peak_time);
             let phase_sq = phase * phase;
             let pulse = e.source_amplitude * (1.0 - 2.0 * phase_sq) * (-phase_sq).exp();
-            for z in 1..e.nz - 1 {
-                for x in 1..e.nx - 1 {
-                    let i = z * e.nx + x;
-                    let laplacian =
-                        (current[i - 1] + current[i + 1] + current[i - e.nx] + current[i + e.nx]
-                            - 4.0 * current[i])
-                            * inv_dx_sq;
-                    let damping = damping_dt[i];
-                    next[i] = (2.0 * current[i] - (1.0 - damping) * previous[i]
-                        + dt_sq * (speed_sq[i] * laplacian + pulse * footprint[i]))
-                        / (1.0 + damping);
-                }
-            }
+            let tangent = if mode == "born" {
+                Some((
+                    &dprevious[..],
+                    &dcurrent[..],
+                    &perturbation[..],
+                    &mut dnext[..],
+                ))
+            } else {
+                None
+            };
+            advance(
+                &previous,
+                &current,
+                &speed,
+                &damping_dt,
+                &footprint,
+                &mut next,
+                tangent,
+                e.nx,
+                e.nz,
+                inv_dx_sq,
+                dt_sq,
+                pulse,
+            );
+            let data = if mode == "born" { &dnext } else { &next };
             for &[x, z] in &e.receivers {
-                let sample = next[z * e.nx + x];
+                let sample = data[z * e.nx + x];
                 traces.write_all(&sample.to_le_bytes())?;
                 norm_sq += sample * sample;
             }
             if shot_index == 0 && recording_every.is_some_and(|every| (step + 1) % every == 0) {
                 let file = wavefield.as_mut().unwrap();
-                for &sample in &next {
+                for &sample in data {
                     file.write_all(&(sample as f32).to_le_bytes())?;
                 }
             }
             std::mem::swap(&mut previous, &mut current);
             std::mem::swap(&mut current, &mut next);
+            if mode == "born" {
+                std::mem::swap(&mut dprevious, &mut dcurrent);
+                std::mem::swap(&mut dcurrent, &mut dnext);
+            }
         }
-        println!("{shot_index}\tforward\t{:.12e}", norm_sq.sqrt());
+        println!("{shot_index}\t{mode}\t{:.12e}", norm_sq.sqrt());
     }
     traces.flush()?;
     if let Some(file) = wavefield.as_mut() {
@@ -224,7 +366,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_json(
         &out.join("result.json"),
         &json!({
-            "mode": "forward", "nx": e.nx, "nz": e.nz, "dx": e.dx, "dt": e.dt,
+            "mode": mode, "nx": e.nx, "nz": e.nz, "dx": e.dx, "dt": e.dt,
             "steps": e.steps, "shots": e.shots, "receivers": e.receivers,
         }),
     )?;
