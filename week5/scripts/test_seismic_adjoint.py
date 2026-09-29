@@ -24,7 +24,8 @@ with tempfile.TemporaryDirectory() as directory:
         "background": [[1.2] * 7 for _ in range(7)],
     }
 
-    def run(mode, perturbation, name, data=None, every=2, speed=None):
+    def run(mode, perturbation, name, data=None, every=2, speed=None,
+            storage=None, checkpoints=None):
         path = directory / f"{name}.json"
         path.write_text(json.dumps(experiment | {
             "perturbation": perturbation.tolist(),
@@ -37,6 +38,10 @@ with tempfile.TemporaryDirectory() as directory:
         ]
         if data is not None:
             command += ["--data", str(data), "--every", str(every)]
+        if storage is not None:
+            command += ["--storage", storage]
+        if checkpoints is not None:
+            command += ["--checkpoints", str(checkpoints)]
         completed = subprocess.run(command, capture_output=True, text=True)
         assert completed.returncode == 0, completed.stderr
         return output, completed
@@ -93,3 +98,62 @@ with tempfile.TemporaryDirectory() as directory:
         index, mode, norm = line.split("\t")
         assert index == str(shot) and mode == "adjoint"
         assert np.isclose(float(norm), np.linalg.norm(weights[shot]), rtol=1e-12)
+
+    for budget in (1, 2):
+        tree_output, _ = run(
+            "adjoint", first, f"treeverse_{budget}", second_output / "born_data.npy",
+            storage="treeverse", checkpoints=budget,
+        )
+        np.testing.assert_array_equal(np.load(tree_output / "image.npy"), image)
+        np.testing.assert_array_equal(np.load(tree_output / "wavefield.npy"), frames)
+        statistics = json.loads((tree_output / "result.json").read_text())["statistics"]
+        assert statistics["storage"] == "treeverse"
+        assert statistics["checkpoints"] == budget
+        assert statistics["reverse_calls"] == 14
+        assert statistics["peak_saved_states"] <= budget + 1
+        assert statistics["peak_saved_bytes"] == statistics["peak_saved_states"] * 2 * 7 * 7 * 8
+        forward_calls = 0
+        for shot, shot_stats in enumerate(statistics["per_shot"]):
+            assert shot_stats["actions_file"] == f"actions-{shot}.json"
+            actions = json.loads((tree_output / shot_stats["actions_file"]).read_text())
+            saved = {0}
+            working = 0
+            reversed_steps = []
+            shot_calls = 0
+            peak_saved = 1
+            for entry in actions:
+                action, step = entry["action"], entry["step"]
+                if action == "restore":
+                    assert step in saved
+                    working = step
+                elif action == "call":
+                    assert step == working
+                    working += 1
+                    shot_calls += 1
+                elif action == "store":
+                    assert step == working and step not in saved
+                    saved.add(step)
+                elif action == "grad":
+                    assert step in saved
+                    reversed_steps.append(step)
+                elif action == "fetch":
+                    assert step in saved and step != 0
+                    saved.remove(step)
+                else:
+                    raise AssertionError(f"unknown action {action}")
+                assert entry["saved_states"] == len(saved) <= budget + 1
+                peak_saved = max(peak_saved, len(saved))
+            assert reversed_steps == list(range(6, -1, -1))
+            assert saved == {0}
+            assert shot_stats["reverse_calls"] == 7
+            assert shot_stats["scheduler_forward_calls"] == shot_calls
+            assert shot_stats["peak_saved_states"] == peak_saved
+            forward_calls += shot_calls
+        assert statistics["scheduler_forward_calls"] == forward_calls
+        assert statistics["peak_saved_states"] == max(
+            shot["peak_saved_states"] for shot in statistics["per_shot"]
+        )
+        if budget == 1:
+            assert forward_calls == 42
+        else:
+            assert forward_calls == 24 and statistics["peak_saved_states"] == 3

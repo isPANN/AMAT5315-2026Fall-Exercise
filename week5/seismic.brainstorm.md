@@ -32,13 +32,14 @@ integer-centered shots in both supplied experiments. Sample receivers from
   `perturbation` and both initial pressure buffers with zero. Hold the source
   and damping fixed. Write scattered receiver samples to `born_data.npy`.
 - `adjoint`: require `--data` pointing to a Born run's `born_data.npy`, with
-  shape `[shot, step, receiver]`. Treat its samples as receiver weights. For
-  each shot, save the complete background state `(u[n-1], u[n])` at every
-  `n = 0..steps`. Walk backward through the saved states, inject the receiver
-  weights at the samples taken after each update, and call Enzyme's timestep
-  VJP once per step. Carry the pressure adjoints through the state shift and
-  sum the velocity adjoints into one `[z, x]` `f64` image. With Born data from
-  the same perturbation, the image is `JᵀJ*perturbation`.
+  shape `[shot, step, receiver]`. Treat its samples as receiver weights. In
+  full-storage mode, save the complete background state `(u[n-1], u[n])` at
+  every `n = 0..steps`; Treeverse keeps only budgeted saved states and replays
+  forward steps as needed. In either mode, inject receiver weights at the
+  samples taken after each update and call Enzyme's timestep VJP once per
+  reverse step. Carry the pressure adjoints through the state shift and sum
+  the velocity adjoints into one `[z, x]` `f64` image. With Born data from the
+  same perturbation, the image is `JᵀJ*perturbation`.
 
 `--every k` applies only to forward and adjoint modes. Count the interval
 from step 0 without recording a step-0 frame. Forward records the first shot
@@ -59,6 +60,15 @@ order; total the calls across shots and report the largest peak. With full
 storage, each shot takes `steps` forward calls to populate its `steps+1`
 states and `steps` VJP calls to reverse them. The forward step evaluated
 inside a VJP is not a scheduler forward call.
+
+With `--storage treeverse --checkpoints d`, keep state 0 and at most `d`
+additional complete states. Choose the smallest positive `t` with
+`binomial(d+t, d) >= steps`, then run the specified recursive `visit` schedule.
+Restore saved bases and replay forward calls to create each needed state;
+apply the same timestep VJP and receiver injection at each `grad` action.
+Write `actions-<shot>.json` with the store, restore, call, grad, and fetch
+actions and their saved-state counts. Count replayed `call` actions as
+`scheduler_forward_calls`; include each action file in the shot's statistics.
 
 ## Checks that matter
 

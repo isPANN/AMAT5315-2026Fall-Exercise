@@ -231,6 +231,188 @@ fn ricker(e: &Experiment, step: usize) -> f64 {
     e.source_amplitude * (1.0 - 2.0 * phase_sq) * (-phase_sq).exp()
 }
 
+fn capacity(d: usize, t: usize, steps: usize) -> bool {
+    let mut value = 1_u128;
+    for i in 1..=d.min(t) {
+        let factor = d as u128 + t as u128 + 1 - i as u128;
+        value = match value.checked_mul(factor) {
+            Some(product) => product / i as u128,
+            None => return true,
+        };
+        if value >= steps as u128 {
+            return true;
+        }
+    }
+    value >= steps as u128
+}
+
+fn split(s: usize, e: usize, d: usize, t: usize) -> usize {
+    let denominator = d as u128 + t as u128;
+    let mut k = s + ((t as u128 * (e - s) as u128).div_ceil(denominator)) as usize;
+    if k >= e && d > 0 {
+        k = (s + 1).max(e - 1);
+    }
+    k
+}
+
+struct Treeverse<'a> {
+    e: &'a Experiment,
+    speed: &'a [f64],
+    damping_dt: &'a [f64],
+    footprint: &'a [f64],
+    shot_data: &'a [f64],
+    image: &'a mut [f64],
+    wavefield: Option<&'a mut BufWriter<File>>,
+    every: Option<usize>,
+    saved: Vec<(usize, Vec<f64>, Vec<f64>)>,
+    work_step: usize,
+    work_previous: Vec<f64>,
+    work_current: Vec<f64>,
+    work_next: Vec<f64>,
+    adj_previous: Vec<f64>,
+    adj_current: Vec<f64>,
+    grad_previous: Vec<f64>,
+    grad_current: Vec<f64>,
+    grad_speed: Vec<f64>,
+    actions: Vec<Value>,
+    forward_calls: usize,
+    reverse_calls: usize,
+    peak_saved_states: usize,
+}
+
+impl Treeverse<'_> {
+    fn action(&mut self, name: &str, step: usize) {
+        self.actions.push(json!({
+            "action": name,
+            "step": step,
+            "saved_states": self.saved.len(),
+        }));
+    }
+
+    fn restore(&mut self, step: usize) {
+        let (_, previous, current) = self.saved.iter().find(|state| state.0 == step).unwrap();
+        self.work_previous.copy_from_slice(previous);
+        self.work_current.copy_from_slice(current);
+        self.work_step = step;
+        self.action("restore", step);
+    }
+
+    fn call(&mut self, step: usize) {
+        assert_eq!(self.work_step, step);
+        advance(
+            &self.work_previous,
+            &self.work_current,
+            self.speed,
+            self.damping_dt,
+            self.footprint,
+            &mut self.work_next,
+            None,
+            self.e.nx,
+            self.e.nz,
+            1.0 / (self.e.dx * self.e.dx),
+            self.e.dt * self.e.dt,
+            ricker(self.e, step),
+        );
+        std::mem::swap(&mut self.work_previous, &mut self.work_current);
+        std::mem::swap(&mut self.work_current, &mut self.work_next);
+        self.work_step += 1;
+        self.forward_calls += 1;
+        self.action("call", step);
+    }
+
+    fn store(&mut self, step: usize) {
+        assert_eq!(self.work_step, step);
+        assert!(!self.saved.iter().any(|state| state.0 == step));
+        self.saved
+            .push((step, self.work_previous.clone(), self.work_current.clone()));
+        self.peak_saved_states = self.peak_saved_states.max(self.saved.len());
+        self.action("store", step);
+    }
+
+    fn grad(&mut self, step: usize) -> std::io::Result<()> {
+        let (_, previous, current) = self.saved.iter().find(|state| state.0 == step).unwrap();
+        for (receiver, &[x, z]) in self.e.receivers.iter().enumerate() {
+            self.adj_current[z * self.e.nx + x] +=
+                self.shot_data[step * self.e.receivers.len() + receiver];
+        }
+        if let (Some(every), Some(file)) = (self.every, self.wavefield.as_mut()) {
+            if (step + 1) % every == 0 {
+                for &sample in &self.adj_current {
+                    file.write_all(&(sample as f32).to_le_bytes())?;
+                }
+            }
+        }
+        self.grad_previous.fill(0.0);
+        self.grad_current.fill(0.0);
+        self.grad_speed.fill(0.0);
+        self.work_next.fill(0.0);
+        reverse_step(
+            previous,
+            &mut self.grad_previous,
+            current,
+            &mut self.grad_current,
+            self.speed,
+            &mut self.grad_speed,
+            self.damping_dt,
+            self.footprint,
+            &mut self.work_next,
+            &mut self.adj_current,
+            self.e.nx,
+            self.e.nz,
+            1.0 / (self.e.dx * self.e.dx),
+            self.e.dt * self.e.dt,
+            ricker(self.e, step),
+        );
+        for i in 0..self.image.len() {
+            self.image[i] += self.grad_speed[i];
+            self.grad_current[i] += self.adj_previous[i];
+        }
+        std::mem::swap(&mut self.adj_previous, &mut self.grad_previous);
+        std::mem::swap(&mut self.adj_current, &mut self.grad_current);
+        self.reverse_calls += 1;
+        self.action("grad", step);
+        Ok(())
+    }
+
+    fn fetch(&mut self, step: usize) {
+        assert_ne!(step, 0);
+        let index = self.saved.iter().position(|state| state.0 == step).unwrap();
+        self.saved.remove(index);
+        self.action("fetch", step);
+    }
+
+    fn visit(
+        &mut self,
+        b: usize,
+        s: usize,
+        mut e: usize,
+        mut d: usize,
+        mut t: usize,
+    ) -> std::io::Result<()> {
+        if s > b {
+            d -= 1;
+            self.restore(b);
+            for step in b..s {
+                self.call(step);
+            }
+            self.store(s);
+        }
+        let mut k = split(s, e, d, t);
+        while t > 0 && k < e {
+            self.visit(s, k, e, d, t)?;
+            t -= 1;
+            e = k;
+            k = split(s, e, d, t);
+        }
+        assert_eq!(e, s + 1);
+        self.grad(s)?;
+        if s > b {
+            self.fetch(s);
+        }
+        Ok(())
+    }
+}
+
 fn write_json(path: &Path, value: &Value) -> Result<(), Box<dyn Error>> {
     let mut file = BufWriter::new(File::create(path)?);
     serde_json::to_writer_pretty(&mut file, value)?;
@@ -243,6 +425,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut mode = None;
     let mut out: Option<PathBuf> = None;
     let mut data_path: Option<PathBuf> = None;
+    let mut storage_option = None;
+    let mut checkpoints = None;
     let mut recording_every = None;
     let mut args = env::args().skip(1);
     while let Some(flag) = args.next() {
@@ -252,6 +436,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             "--mode" => mode = Some(value),
             "--out" => out = Some(value.into()),
             "--data" => data_path = Some(value.into()),
+            "--storage" => storage_option = Some(value),
+            "--checkpoints" => checkpoints = Some(value.parse::<usize>()?),
             "--every" => recording_every = Some(value.parse::<usize>()?),
             _ => return Err(format!("unknown option {flag}").into()),
         }
@@ -268,6 +454,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     if mode != "adjoint" && data_path.is_some() {
         return Err("--data is only valid in adjoint mode".into());
     }
+    if mode != "adjoint" && (storage_option.is_some() || checkpoints.is_some()) {
+        return Err("--storage and --checkpoints are only valid in adjoint mode".into());
+    }
+    let storage = storage_option.as_deref().unwrap_or("full");
+    if storage != "full" && storage != "treeverse" {
+        return Err("--storage must be full or treeverse".into());
+    }
+    if storage == "treeverse" && checkpoints.is_none() {
+        return Err("treeverse storage requires --checkpoints".into());
+    }
+    if storage == "full" && checkpoints.is_some() {
+        return Err("--checkpoints requires treeverse storage".into());
+    }
     if recording_every == Some(0) {
         return Err("--every must be positive".into());
     }
@@ -278,6 +477,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let raw: Value = serde_json::from_slice(&fs::read(&experiment_path)?)?;
     let experiment: Experiment = serde_json::from_value(raw.clone())?;
     let e = &experiment;
+    if storage == "treeverse" && checkpoints == Some(0) && e.steps > 1 {
+        return Err("zero extra checkpoints can reverse only one step".into());
+    }
     if e.nx < 3
         || e.nz < 3
         || e.steps == 0
@@ -405,6 +607,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         Vec::new()
     };
+    let mut tree_per_shot = Vec::new();
+    let mut tree_forward_calls = 0;
+    let mut tree_reverse_calls = 0;
+    let mut tree_peak = 0;
     let mut footprint = vec![0.0; cells];
     println!("shot\tmode\tdata L2 norm");
     for (shot_index, &[shot_x, shot_z]) in e.shots.iter().enumerate() {
@@ -414,7 +620,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         dprevious.fill(0.0);
         dcurrent.fill(0.0);
         dnext.fill(0.0);
-        let mut history = if mode == "adjoint" {
+        let mut history = if mode == "adjoint" && storage == "full" {
             vec![(previous.clone(), current.clone())]
         } else {
             Vec::new()
@@ -424,6 +630,59 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let radius_sq = (x as f64 - shot_x).powi(2) + (z as f64 - shot_z).powi(2);
                 footprint[z * e.nx + x] = (-0.5 * radius_sq).exp();
             }
+        }
+        if mode == "adjoint" && storage == "treeverse" {
+            let shot_data = &weights[shot_index * e.steps * e.receivers.len()
+                ..(shot_index + 1) * e.steps * e.receivers.len()];
+            let budget = checkpoints.unwrap();
+            let mut t = 1;
+            while !capacity(budget, t, e.steps) {
+                t += 1;
+            }
+            let mut scheduler = Treeverse {
+                e,
+                speed: &speed,
+                damping_dt: &damping_dt,
+                footprint: &footprint,
+                shot_data,
+                image: &mut image,
+                wavefield: if shot_index == 0 {
+                    wavefield.as_mut()
+                } else {
+                    None
+                },
+                every: recording_every,
+                saved: vec![(0, previous.clone(), current.clone())],
+                work_step: 0,
+                work_previous: previous.clone(),
+                work_current: current.clone(),
+                work_next: vec![0.0; cells],
+                adj_previous: vec![0.0; cells],
+                adj_current: vec![0.0; cells],
+                grad_previous: vec![0.0; cells],
+                grad_current: vec![0.0; cells],
+                grad_speed: vec![0.0; cells],
+                actions: Vec::new(),
+                forward_calls: 0,
+                reverse_calls: 0,
+                peak_saved_states: 1,
+            };
+            scheduler.visit(0, 0, e.steps, budget, t)?;
+            assert_eq!(scheduler.saved.len(), 1);
+            let actions_file = format!("actions-{shot_index}.json");
+            tree_per_shot.push(json!({
+                "reverse_calls": scheduler.reverse_calls,
+                "scheduler_forward_calls": scheduler.forward_calls,
+                "peak_saved_states": scheduler.peak_saved_states,
+                "actions_file": actions_file,
+            }));
+            tree_forward_calls += scheduler.forward_calls;
+            tree_reverse_calls += scheduler.reverse_calls;
+            tree_peak = tree_peak.max(scheduler.peak_saved_states);
+            write_json(&out.join(actions_file), &Value::Array(scheduler.actions))?;
+            let norm_sq: f64 = shot_data.iter().map(|value| value * value).sum();
+            println!("{shot_index}\t{mode}\t{:.12e}", norm_sq.sqrt());
+            continue;
         }
         let mut norm_sq = 0.0;
         for step in 0..e.steps {
@@ -472,7 +731,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 std::mem::swap(&mut dprevious, &mut dcurrent);
                 std::mem::swap(&mut dcurrent, &mut dnext);
             }
-            if mode == "adjoint" {
+            if mode == "adjoint" && storage == "full" {
                 history.push((previous.clone(), current.clone()));
             }
         }
@@ -565,19 +824,31 @@ fn main() -> Result<(), Box<dyn Error>> {
         "steps": e.steps, "shots": e.shots, "receivers": e.receivers,
     });
     if mode == "adjoint" {
-        result["statistics"] = json!({
-            "storage": "full",
-            "checkpoints": null,
-            "reverse_calls": e.shots.len() * e.steps,
-            "scheduler_forward_calls": e.shots.len() * e.steps,
-            "peak_saved_states": e.steps + 1,
-            "peak_saved_bytes": (e.steps + 1) * 2 * cells * 8,
-            "per_shot": vec![json!({
-                "reverse_calls": e.steps,
-                "scheduler_forward_calls": e.steps,
+        result["statistics"] = if storage == "treeverse" {
+            json!({
+                "storage": "treeverse",
+                "checkpoints": checkpoints.unwrap(),
+                "reverse_calls": tree_reverse_calls,
+                "scheduler_forward_calls": tree_forward_calls,
+                "peak_saved_states": tree_peak,
+                "peak_saved_bytes": tree_peak * 2 * cells * 8,
+                "per_shot": tree_per_shot,
+            })
+        } else {
+            json!({
+                "storage": "full",
+                "checkpoints": null,
+                "reverse_calls": e.shots.len() * e.steps,
+                "scheduler_forward_calls": e.shots.len() * e.steps,
                 "peak_saved_states": e.steps + 1,
-            }); e.shots.len()],
-        });
+                "peak_saved_bytes": (e.steps + 1) * 2 * cells * 8,
+                "per_shot": vec![json!({
+                    "reverse_calls": e.steps,
+                    "scheduler_forward_calls": e.steps,
+                    "peak_saved_states": e.steps + 1,
+                }); e.shots.len()],
+            })
+        };
     }
     write_json(&out.join("result.json"), &result)?;
     Ok(())
