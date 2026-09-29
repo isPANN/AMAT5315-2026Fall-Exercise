@@ -3,3 +3,5 @@ inputs/
 __pycache__/
 seismic/target/
 artifacts/forward/
+artifacts/born/
+artifacts/adjoint/
