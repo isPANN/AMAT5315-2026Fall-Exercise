@@ -1,4 +1,4 @@
-"""Run with: uv run --no-project --with jax --with matplotlib python week5/scripts/test_graphs.py"""
+"""Run with: uv run --no-project --with jax --with pillow python week5/scripts/test_graphs.py"""
 
 import subprocess
 import sys
