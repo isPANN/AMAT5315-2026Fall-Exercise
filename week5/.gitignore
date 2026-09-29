@@ -5,3 +5,5 @@ seismic/target/
 artifacts/forward/
 artifacts/born/
 artifacts/adjoint/
+artifacts/checkpoint-*/
+artifacts/marmousi-*/
