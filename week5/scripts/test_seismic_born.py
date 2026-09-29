@@ -31,8 +31,6 @@ with tempfile.TemporaryDirectory() as directory:
             "cargo", "run", "--quiet", "--manifest-path", str(week / "seismic/Cargo.toml"), "--",
             "--experiment", str(path), "--mode", mode, "--out", str(output),
         ]
-        if mode == "born":
-            command += ["--every", "2"]
         completed = subprocess.run(
             command,
             capture_output=True, text=True,
@@ -50,10 +48,14 @@ with tempfile.TemporaryDirectory() as directory:
     assert np.max(np.abs(reference)) > 1e-4
     np.testing.assert_allclose(born, reference, rtol=2e-5, atol=2e-9)
     np.testing.assert_array_equal(born[:, 0], 0)
-    frames = np.load(output / "wavefield.npy")
-    assert frames.dtype == np.float32 and frames.shape == (4, 7, 7)
-    np.testing.assert_allclose(frames[:, 3, 3], born[0, 1::2, 0], rtol=1e-6, atol=1e-12)
-    assert json.loads((output / "run.json").read_text())["recording"]["steps"] == [2, 4, 6, 8]
+    assert not (output / "wavefield.npy").exists()
+    rejected = subprocess.run(
+        ["cargo", "run", "--quiet", "--manifest-path", str(week / "seismic/Cargo.toml"), "--",
+         "--experiment", str(directory / "born.json"), "--mode", "born",
+         "--out", str(directory / "rejected"), "--every", "2"],
+        capture_output=True, text=True,
+    )
+    assert rejected.returncode != 0
     assert json.loads((output / "result.json").read_text())["mode"] == "born"
     lines = completed.stdout.splitlines()
     assert lines[0] == "shot\tmode\tdata L2 norm" and len(lines) == 3
