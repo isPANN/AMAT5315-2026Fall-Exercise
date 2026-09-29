@@ -1,9 +1,10 @@
 # `seismic` package sketch
 
-Build a Rust binary in `week5/seismic/` with the CLI and output files in
+The Rust binary in `week5/seismic/` follows
 [`seismic.design.toml`](seismic.design.toml). Parse the experiment JSON with
-`serde_json`; use flat row-major `[z][x]` arrays. A direct `.npy` writer can
-emit the three specified array shapes without an array framework.
+`serde_json`; use flat row-major `[z][x]` arrays. Write the specified `.npy`
+arrays directly. Pin the Enzyme nightly, isolate the numerical timestep in a
+`no_std` static library, and call it through checked Rust wrappers.
 
 ## Discrete step
 
@@ -27,22 +28,35 @@ integer-centered shots in both supplied experiments. Sample receivers from
 
 - `forward`: run the update for each shot and write pressure traces as
   `[shot, step, receiver]` `f64`.
-- `born`: advance the background and scattered fields together. The scattered
-  source is `2*c*perturbation*L(u[n])`; its initial buffers and boundaries are
-  zero. Write the scattered receiver samples as `born_data.npy`.
-- `adjoint`: use the internally generated Born traces as receiver data and
-  apply the **discrete transpose** of the Born update to form a velocity image
-  `[z, x]` `f64`. The spatial transpose matters: for varying `c`, the transpose
-  of `c^2*L` is `L(c^2*·)`. This image is `JᵀJ*perturbation`, where `J` maps a
-  velocity perturbation to scattered traces.
+- `born`: chain one Enzyme timestep JVP per update, seeding the velocity with
+  `perturbation` and both initial pressure buffers with zero. Hold the source
+  and damping fixed. Write scattered receiver samples to `born_data.npy`.
+- `adjoint`: require `--data` pointing to a Born run's `born_data.npy`, with
+  shape `[shot, step, receiver]`. Treat its samples as receiver weights. For
+  each shot, save the complete background state `(u[n-1], u[n])` at every
+  `n = 0..steps`. Walk backward through the saved states, inject the receiver
+  weights at the samples taken after each update, and call Enzyme's timestep
+  VJP once per step. Carry the pressure adjoints through the state shift and
+  sum the velocity adjoints into one `[z, x]` `f64` image. With Born data from
+  the same perturbation, the image is `JᵀJ*perturbation`.
 
-For forward `--every k`, record the first shot after updates
-`k, 2k, ...`; adjoint recording follows decreasing steps as specified in the
-TOML. Store frame steps and times `step*dt` in `run.json`. Process shots one
-at a time. The Marmousi grid has 216,545 cells; a full `f64` wavefield history
-for one 1,200-step shot is about 2.1 GB, so the adjoint needs file-backed
-forward history or bounded recomputation rather than retaining all frames in
-RAM.
+`--every` applies only to forward and adjoint modes. Forward records the first
+shot after updates `k, 2k, ...`. Adjoint records the first shot at positive
+steps `N, N-k, ...`: each frame is the pressure adjoint of `u[n]`
+after injecting that step's receiver weights and before the timestep VJP.
+Store frame steps and times `step*dt` in `run.json`, in recording order.
+Reject `--every` in Born mode. Process shots one at a time. Full
+storage uses `steps+1` complete states per shot; each state holds two `f64`
+fields and occupies `2*nx*nz*8` bytes. The 216,545-cell, 1,200-step Marmousi
+case therefore needs about 4.16 GB for saved states of one shot.
+
+For adjoint `result.json`, report `storage: "full"`, `checkpoints: null`,
+`reverse_calls`, `scheduler_forward_calls`, `peak_saved_states`, and
+`peak_saved_bytes`. Report the calls and peak state count per shot in shot
+order; total the calls across shots and report the largest peak. With full
+storage, each shot takes `steps` forward calls to populate its `steps+1`
+states and `steps` VJP calls to reverse them. The forward step evaluated
+inside a VJP is not a scheduler forward call.
 
 ## Checks that matter
 
@@ -51,5 +65,6 @@ points, and the two-dimensional CFL bound `max(c)*dt/dx <= 1/sqrt(2)` before
 running. The supplied reflector and Marmousi backgrounds have CFL numbers
 `0.36` and `0.517`, respectively. Check the forward step and receiver timing
 on the reflector input; compare Born data with a centered perturbation of the
-forward model; check the adjoint with a dot-product identity. Keep `inputs/`
+forward model; check `⟨Jδc, d⟩ = ⟨δc, Jᵀd⟩` with independently chosen receiver
+weights `d`, then check the Born-data image against `JᵀJδc`. Keep `inputs/`
 and generated `.npy` files out of Git.
