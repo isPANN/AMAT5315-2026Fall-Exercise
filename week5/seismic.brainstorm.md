@@ -40,10 +40,12 @@ integer-centered shots in both supplied experiments. Sample receivers from
   sum the velocity adjoints into one `[z, x]` `f64` image. With Born data from
   the same perturbation, the image is `JᵀJ*perturbation`.
 
-`--every` applies only to forward and adjoint modes. Forward records the first
-shot after updates `k, 2k, ...`. Adjoint records the first shot at positive
-steps `N, N-k, ...`: each frame is the pressure adjoint of `u[n]`
-after injecting that step's receiver weights and before the timestep VJP.
+`--every k` applies only to forward and adjoint modes. Count the interval
+from step 0 without recording a step-0 frame. Forward records the first shot
+after updates `k, 2k, ...` through the largest multiple of `k` at most `N`.
+Adjoint records those same positive multiples in decreasing order. A frame at
+step `n` holds the pressure adjoint of `u[n]` after injecting that step's
+receiver weights and before the timestep VJP.
 Store frame steps and times `step*dt` in `run.json`, in recording order.
 Reject `--every` in Born mode. Process shots one at a time. Full
 storage uses `steps+1` complete states per shot; each state holds two `f64`

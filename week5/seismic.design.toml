@@ -27,7 +27,7 @@ experiment: its fields except background and perturbation"""
 "<out>/image.npy" = "adjoint: float64 velocity sensitivity [z, x]"
 
 [args.recording]
-every = "forward and adjoint only: steps between recorded frames; default off"
+every = "forward and adjoint only: record at positive multiples of this step interval counted from step 0; default off"
 [writes.recording]
 "<out>/wavefield.npy" = """float32 pressure fields of the first shot [frame, z, x];
 forward records increasing steps;
