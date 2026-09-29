@@ -9,14 +9,17 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 
-def passes(r):
-    r = jnp.asarray(r, dtype=jnp.float64)
-
-    # Primal pass
+def primal(r):
     a = r**-6
     b = a**2
     c = b - a
     U = 4 * c
+    return a, b, c, U
+
+
+def passes(r):
+    r = jnp.asarray(r, dtype=jnp.float64)
+    a, b, c, U = primal(r)
 
     # Forward pass, seeded with dr = 1
     dr = jnp.ones_like(r)
