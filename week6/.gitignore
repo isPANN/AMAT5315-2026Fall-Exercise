@@ -1,0 +1,5 @@
+/inputs/
+/artifacts/
+/.venv/
+__pycache__/
+*.pyc
