@@ -11,11 +11,9 @@ and the [BrainChip CIFAR-10 mirror](https://data.brainchip.com/dataset-mirror/ci
 
 Run from `week6/` in bash or zsh:
 
-The proxy setting below matches this Mac's configured HTTPS proxy. Retry
-connection failures and resume the existing partial CIFAR-10 archive.
+Retry connection failures and resume the existing partial CIFAR-10 archive.
 
 ```sh
-export https_proxy=http://127.0.0.1:1082
 mkdir -p inputs/mnist inputs/cifar10
 mnist_url=https://ossci-datasets.s3.amazonaws.com/mnist
 for split in train t10k; do
