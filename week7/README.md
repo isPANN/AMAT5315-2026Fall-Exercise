@@ -48,6 +48,37 @@ Tests check the target's equal weights, component means and covariances, direct
 forward marginals, transition noise variances and independence from the previous
 state, the terminal conditional distribution, and the saved-run command.
 
+## Forward-diffusion movie
+
+After generating the forward run above, create the movie with:
+
+```sh
+uv run --no-project --with jax --with numpy --with matplotlib python -m scripts.forward_movie
+```
+
+This requires the system `ffmpeg` executable. The movie is saved as
+`evidence/forward-diffusion.mp4` (800 × 800, 30 fps, 1001 frames, about 33 seconds).
+It follows the same 4096 samples through their saved Markov trajectories at every
+level from `t=0` to `t=1000`. Colors are assigned by the nearest centre at `t=0`
+and remain fixed, showing how the four initial modes merge. Both coordinate
+axes share one fixed symmetric range, chosen from the entire saved trajectory
+with padding so all samples remain visible.
+
+The command prints each coordinate's empirical mean and population variance
+(`ddof=0`) at `t=1000`. For the saved seed-71 run:
+
+| Coordinate | Mean | Variance |
+| --- | ---: | ---: |
+| x1 | 0.006758 | 1.086408 |
+| x2 | -0.000522 | 1.015046 |
+
+`artifacts/diffusion/movie.json` records the source run, movie settings, fixed
+coordinate limits, frame levels and terminal moments. `--run PATH`, `--output
+PATH`, and `--fps N` select another saved run, movie destination or playback rate.
+No fresh samples are drawn. The movie and its metadata remain outside git.
+Tests check sample positions, persistent colors, fixed axes, known terminal
+moments, encoded frame count and successful decoding using `ffmpeg`/`ffprobe`.
+
 ## Noise-prediction training and DDPM sampling
 
 ```sh
