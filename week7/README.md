@@ -194,11 +194,8 @@ mark generated endpoints. Grey circles mark the four target centres.
 
 The first panel keeps both coordinate limits fixed at `[-5,5]`. The second uses
 one fixed range containing every path at every stage, including the widely
-spread paths of the initialized model. When a path leaves a panel, a colored
-arrow at the boundary points toward its most distant off-screen point. Its label
-gives the chain number and `max r`, the maximum Euclidean distance from the
-origin reached anywhere on that complete path. Labels are spaced along each
-edge. The original path coordinates are retained and plotted without alteration.
+spread paths of the initialized model. The original path coordinates are
+retained and plotted without alteration.
 The loss panel uses fixed axes and
 shows raw training losses only through the current checkpoint, means of up to
 100 consecutive losses, and held-out losses for the stages reached so far.

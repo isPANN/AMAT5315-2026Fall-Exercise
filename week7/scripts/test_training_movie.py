@@ -57,44 +57,9 @@ def test_stage_frames_show_ten_full_paths_and_no_future_losses():
         np.testing.assert_array_equal(raw_history, history[:updates[stage]])
         assert [line.get_color() for line in zoom.lines] == colours
         assert [(ax.get_xlim(), ax.get_ylim()) for ax in fig.axes] == fixed_limits
-        visible_arrows = [text for text in zoom.texts if text.get_visible()]
-        if stage == 0:
-            assert len(visible_arrows) == 1
-            assert "128.1" in visible_arrows[0].get_text()
-            np.testing.assert_allclose(visible_arrows[0].xy, [5., -4.])
-        else:
-            assert not visible_arrows
+        assert not any(text.get_visible() for ax in [zoom, overview] for text in ax.texts)
     assert zoom.get_xlim() == (-5., 5.) and zoom.get_ylim() == (-5., 5.)
     assert overview.get_xlim()[1] > 100
-    plt.close(fig)
-
-
-def test_offscreen_annotations_cover_all_edges_and_clear_between_stages():
-    paths = np.zeros((10, 1001, 10, 2))
-    outside = np.array([[20., 10.], [-12., 6.], [3., 15.], [-6., -18.], [30., 3.]])
-    paths[0, -1, :5] = outside
-    paths[1, -1, :, 0] = np.linspace(-4., 4., 10)
-    paths[1, -1, :, 1] = np.linspace(20., 100., 10)
-    updates = np.array([0, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 25000])
-    history = np.column_stack((np.arange(1, 25001), np.ones(25000)))
-    fig, update = training_frames(paths, updates, history, np.ones(10))
-    zoom = fig.axes[0]
-    update(0)
-    arrows = [text for text in zoom.texts if text.get_visible()]
-    assert len(arrows) == 5
-    for chain, arrow in enumerate(arrows):
-        expected_edge = outside[chain] * 5 / np.max(np.abs(outside[chain]))
-        np.testing.assert_allclose(arrow.xy, expected_edge)
-        assert f"{np.linalg.norm(outside[chain]):.1f}" in arrow.get_text()
-        np.testing.assert_array_equal(zoom.lines[chain].get_xydata(), paths[0, :, chain])
-    assert len({tuple(text.get_position()) for text in arrows}) == 5
-    update(1)
-    fig.canvas.draw()
-    boxes = [text.get_bbox_patch().get_window_extent() for text in zoom.texts if text.get_visible()]
-    assert len(boxes) == 10
-    assert not any(first.overlaps(second) for i, first in enumerate(boxes) for second in boxes[i + 1:])
-    update(9)
-    assert not any(text.get_visible() for text in zoom.texts)
     plt.close(fig)
 
 

@@ -31,13 +31,9 @@ def training_frames(paths, updates, history, evaluation):
         lines = [ax.plot([], [], color=colours[i], linewidth=0.8, alpha=0.75)[0] for i in range(10)]
         starts = ax.scatter(paths[0, 0, :, 0], paths[0, 0, :, 1], c=colours, marker="+", s=45, linewidths=1.4)
         ends = ax.scatter(paths[0, -1, :, 0], paths[0, -1, :, 1], c=colours, s=32, edgecolors="black", linewidths=0.4, zorder=5)
-        arrows = [ax.annotate("", xy=(0, 0), xytext=(0, 0), fontsize=8, visible=False,
-                              annotation_clip=False, bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.9, "pad": 1.},
-                              arrowprops={"arrowstyle": "-|>", "color": colours[i], "linewidth": 1.2, "shrinkB": 0})
-                  for i in range(10)]
         ax.set(xlim=(-bound, bound), ylim=(-bound, bound), aspect="equal", title=title,
                xlabel="$x_1$", ylabel="$x_2$")
-        path_artists.append((lines, starts, ends, arrows, bound))
+        path_artists.append((lines, starts, ends))
     raw, = axes[2].plot([], [], color="#aaaaaa", linewidth=0.5, alpha=0.4, label="raw training MSE")
     averaged, = axes[2].plot([], [], ".-", color="#0072b2", linewidth=1.5, markersize=3, label="means of up to 100 updates")
     held_out, = axes[2].plot([], [], "o", color="#d55e00", markersize=4, label="fixed held-out batch")
@@ -50,40 +46,13 @@ def training_frames(paths, updates, history, evaluation):
     fig.text(0.5, 0.11, "10 complete paths: t = 1000 → 0 · + Gaussian start · ● generated endpoint · grey circles: target centres",
              ha="center", fontsize=10)
     fig.text(0.5, 0.065, "Matching colours reuse identical initial points and reverse-step noise at every stage", ha="center", fontsize=10)
-    fig.text(0.5, 0.02, "Edge arrows mark off-screen paths · max r is the farthest distance from the origin · paths are unaltered", ha="center", fontsize=10)
 
     def update(stage):
         title.set_text(f"Saved training stage {stage + 1}/10 · update {updates[stage]:,}\nHeld-out noise MSE: {evaluation[stage]:.6f}")
-        for lines, starts, ends, arrows, bound in path_artists:
-            outside_paths = []
+        for lines, starts, ends in path_artists:
             for chain, line in enumerate(lines):
                 points = paths[stage, :, chain]
                 line.set_data(points[:, 0], points[:, 1])
-                outside = np.max(np.abs(points), axis=1) > bound
-                arrows[chain].set_visible(bool(outside.any()))
-                if outside.any():
-                    radii = np.linalg.norm(points, axis=1)
-                    farthest = points[np.argmax(np.where(outside, radii, -1))]
-                    edge = farthest * (bound / np.max(np.abs(farthest)))
-                    axis = int(np.argmax(np.abs(edge)))
-                    sign = int(np.sign(edge[axis]))
-                    arrows[chain].xy = tuple(edge)
-                    arrows[chain].set_text(f"{chain + 1}: max r={radii.max():.1f}")
-                    outside_paths.append((chain, axis, sign, edge[1 - axis]))
-            for axis in (0, 1):
-                for sign in (-1, 1):
-                    side = sorted((item for item in outside_paths if item[1:3] == (axis, sign)), key=lambda item: item[3])
-                    positions = np.linspace(-0.8 * bound, 0.8 * bound, len(side) + 2)[1:-1]
-                    for index, (item, position) in enumerate(zip(side, positions)):
-                        text_position = [position, position]
-                        text_position[axis] = sign * 0.9 * bound
-                        if axis == 1:
-                            text_position[0] = 0 if len(side) == 1 else (-0.5 if index % 2 == 0 else 0.5) * bound
-                            text_position[1] = sign * (0.9 * bound - (index // 2) * 0.65)
-                        arrow = arrows[item[0]]
-                        arrow.set_position(text_position)
-                        arrow.set_ha("left" if axis == 0 and sign < 0 else "right" if axis == 0 else "center")
-                        arrow.set_va("bottom" if axis == 1 and sign < 0 else "top" if axis == 1 else "center")
             starts.set_offsets(paths[stage, 0])
             ends.set_offsets(paths[stage, -1])
         prefix = history[history[:, 0] <= updates[stage]]
@@ -141,7 +110,6 @@ def main():
         "key_rule": "split once for initialization; split carried key at each reverse step",
         "fps": 30, "frames_per_stage": args.frames_per_stage,
         "target_view_limits": list(fig.axes[0].get_xlim()), "overview_limits": list(fig.axes[1].get_xlim()),
-        "offscreen_annotations": "one edge arrow per path leaving a view; label is maximum Euclidean distance from origin over the full path",
         "loss_display": "only updates <= checkpoint; raw losses plus non-overlapping means of up to 100 updates",
         "backend": jax.default_backend(), "dtype": str(paths.dtype), "jax": jax.__version__,
         "numpy": np.__version__, "matplotlib": matplotlib.__version__,
