@@ -220,3 +220,51 @@ all ten saved-stage inputs, and successful movie decoding.
 
 `ddpm_trajectory(params, key, count)` returns all 1001 levels, including the
 initial Gaussian batch at index zero and generated points at index `-1`.
+
+## Reverse-process movie and final distribution
+
+```sh
+uv run --no-project --with jax --with numpy --with matplotlib python -m scripts.reverse_movie
+```
+
+This loads `checkpoint-025000.npz`, draws 2000 independent Gaussian starting
+points, and performs all 1000 DDPM reverse steps with the frozen trained
+predictor. Reverse variance is `beta_t`, with no clipping and no added noise in
+the last step. Seed 2027 is split into independent sampling and target-draw keys.
+The run uses CPU by default.
+
+`evidence/reverse-diffusion.mp4` follows the same points at every level from
+`t=1000` to `t=0`, at 30 fps (1001 frames, about 33 seconds). Both coordinate
+axes keep the same scale throughout, covering the whole trajectory. Colors
+identify each point's final nearest target mode and stay fixed during playback.
+`evidence/reverse-distribution.png` compares the final generated points with
+2000 independently sampled target points on identical axes, overlays target
+and measured centres, and includes the measured mode statistics.
+
+Raw outputs are retained in `artifacts/reverse-diffusion/`:
+
+- `trajectory.npz`: all 1001 states, decreasing diffusion levels, and target points.
+- `mode-statistics.csv`: nearest-target-centre assignments summarized by mode,
+  including count, fraction, centre, coordinate standard deviations and variances.
+- `settings.json`: checkpoint path, sample count, seeds/keys, sampler and movie
+  settings, precision, device, library versions and generation time.
+
+Standard deviations and variances are population moments (`ddof=0`), computed
+in float64 about each assigned group's measured centre. The target has 25%
+probability per mode (500 points in expectation) and coordinate standard
+deviations `0.3` (variances `0.09`). The default generated sample has:
+
+| Target centre | Measured centre | Population | Std x1 | Std x2 |
+| --- | --- | ---: | ---: | ---: |
+| (3,0) | (2.9954,-0.0181) | 508 (25.40%) | 0.3026 | 0.3022 |
+| (0,3) | (0.0016,2.9898) | 509 (25.45%) | 0.2925 | 0.3181 |
+| (-3,0) | (-3.0062,0.0274) | 500 (25.00%) | 0.3029 | 0.2963 |
+| (0,-3) | (0.0072,-2.9945) | 483 (24.15%) | 0.3221 | 0.3161 |
+
+These estimates describe this one 2000-point run. Use `--checkpoint`, `--samples`
+and `--seed` to select another generation run, and `--output`, `--figure` and
+`--movie` to select destinations. The raw output directory must be new.
+`--frame-stride N` subsamples movie frames while keeping the complete 1000-step
+sampling computation and both movie endpoints. The tests use this to verify
+the actual saved run, statistics, plot and video with a shorter encoding.
+System `ffmpeg` is required; tests also use `ffprobe`.
