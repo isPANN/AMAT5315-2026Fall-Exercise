@@ -108,7 +108,9 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     sampling_key, target_key = jax.random.split(jax.random.key(args.seed))
     started = time.perf_counter()
-    trajectory = np.array(ddpm_trajectory(params, sampling_key, args.samples))
+    reverse_key, initial_key = jax.random.split(sampling_key)
+    initial = jax.random.normal(initial_key, (args.samples, 2), dtype=jnp.float32)
+    trajectory = np.array(ddpm_trajectory(params, initial, reverse_key))
     compute_seconds = time.perf_counter() - started
     if not np.isfinite(trajectory).all():
         raise ValueError("trained predictor produced non-finite DDPM samples")

@@ -117,7 +117,9 @@ def main():
     with np.load(args.output / checkpoint) as saved:
         final = {name: jnp.array(saved[name]) for name in saved.files}
     started = time.perf_counter()
-    generated = np.array(ddpm_trajectory(final, keys["sampling"], args.samples)[-1])
+    reverse_key, initial_key = jax.random.split(keys["sampling"])
+    initial = jax.random.normal(initial_key, (args.samples, 2), dtype=jnp.float32)
+    generated = np.array(ddpm_trajectory(final, initial, reverse_key)[-1])
     settings["sampling_seconds_including_compilation"] = time.perf_counter() - started
     target = np.array(sample_mixture(keys["target"], args.samples))
     np.savez_compressed(args.output / "samples.npz", generated=generated, target=target)

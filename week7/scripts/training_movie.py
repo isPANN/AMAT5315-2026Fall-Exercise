@@ -85,12 +85,14 @@ def main():
         history = np.array([(int(row["update"]), float(row["training_loss"])) for row in csv.DictReader(stream)])
     settings = json.loads((args.run / "settings.json").read_text())
     key = jax.random.wrap_key_data(jnp.array(settings["keys"]["sampling"], dtype=jnp.uint32))
+    reverse_key, initial_key = jax.random.split(key)
+    initial = jax.random.normal(initial_key, (10, 2), dtype=jnp.float32)
     trajectories = []
     for stage in stages:
         with np.load(args.run / stage["checkpoint"]) as saved:
             params = {name: jnp.array(saved[name]) for name in saved.files}
-        # Reusing the same key and shape couples every random draw across stages.
-        trajectories.append(np.array(ddpm_trajectory(params, key, 10)))
+        # Identical starting points and reverse key couple all draws across stages.
+        trajectories.append(np.array(ddpm_trajectory(params, initial, reverse_key)))
         print(f"Sampled 10 matched paths at update {stage['update']}", flush=True)
     paths = np.stack(trajectories)
     if not np.isfinite(paths).all():
@@ -106,7 +108,7 @@ def main():
         "run": str(args.run.resolve()), "output": str(args.output.resolve()),
         "checkpoints": [stage["checkpoint"] for stage in stages], "updates": updates.tolist(),
         "paths_per_stage": 10, "sampling_key": np.array(jax.random.key_data(key)).tolist(),
-        "coupling": "same ddpm_trajectory key and sample count at every stage; no stage-dependent keys",
+        "coupling": "same explicit initial points and reverse key at every stage; no stage-dependent keys",
         "key_rule": "split once for initialization; split carried key at each reverse step",
         "fps": 30, "frames_per_stage": args.frames_per_stage,
         "target_view_limits": list(fig.axes[0].get_xlim()), "overview_limits": list(fig.axes[1].get_xlim()),

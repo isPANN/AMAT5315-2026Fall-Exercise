@@ -59,11 +59,13 @@ def test_reverse_command_saves_full_ddpm_run_metrics_and_decodable_movie(tmp_pat
     assert settings["frame_levels"] == [1000, 0]
     assert settings["variance_ddof"] == 0
     key = jax.random.wrap_key_data(jnp.array(settings["keys"]["sampling"], dtype=jnp.uint32))
+    reverse_key, initial_key = jax.random.split(key)
+    initial = jax.random.normal(initial_key, (128, 2), dtype=jnp.float32)
     with np.load(run / "trajectory.npz") as saved:
         trajectory = saved["trajectory"]
         assert trajectory.shape == (1001, 128, 2) and np.isfinite(trajectory).all()
         np.testing.assert_array_equal(saved["levels"], np.arange(1000, -1, -1))
-        np.testing.assert_array_equal(trajectory, ddpm_trajectory(params, key, 128))
+        np.testing.assert_array_equal(trajectory, ddpm_trajectory(params, initial, reverse_key))
     with (run / "mode-statistics.csv").open() as stream:
         rows = list(csv.DictReader(stream))
     assert sum(int(row["count"]) for row in rows) == 128

@@ -115,10 +115,12 @@ def test_training_command_retains_ten_reloadable_models_and_generates_samples(tm
     batch = training_batch(evaluation_key, settings["evaluation_samples"])
     np.testing.assert_allclose(noise_loss(final, *batch), float(stages[-1]["evaluation_loss"]), rtol=2e-6)
     sampling_key = jax.random.wrap_key_data(jnp.array(settings["keys"]["sampling"], dtype=jnp.uint32))
+    reverse_key, initial_key = jax.random.split(sampling_key)
+    initial = jax.random.normal(initial_key, (128, 2), dtype=jnp.float32)
     with np.load(run / "samples.npz") as saved:
         samples = saved["generated"]
         assert samples.shape == (128, 2) and np.isfinite(samples).all()
-        np.testing.assert_array_equal(samples, ddpm_trajectory(final, sampling_key, 128)[-1])
+        np.testing.assert_array_equal(samples, ddpm_trajectory(final, initial, reverse_key)[-1])
     from PIL import Image
     with Image.open(figure) as image:
         image.verify()

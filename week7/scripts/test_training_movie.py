@@ -17,10 +17,11 @@ def test_reverse_trajectories_share_initial_points_and_step_noise_across_predict
     first = jax.tree.map(jnp.zeros_like, initialize_model(jax.random.key(31)))
     second = dict(first, b3=jnp.array([0.5, -0.25]))
     key = jax.random.key(32)
-    paths = [np.array(ddpm_trajectory(params, key, 10)) for params in (first, second)]
+    reverse_key, initial_key = jax.random.split(key)
+    initial = jax.random.normal(initial_key, (10, 2), dtype=jnp.float32)
+    paths = [np.array(ddpm_trajectory(params, initial, reverse_key)) for params in (first, second)]
     assert paths[0].shape == (1001, 10, 2)
     np.testing.assert_array_equal(paths[0][0], paths[1][0])
-    _, initial_key = jax.random.split(key)
     np.testing.assert_array_equal(paths[0][0], jax.random.normal(initial_key, (10, 2)))
     for i in [0, 500, 998]:
         t = 1000 - i
@@ -91,7 +92,9 @@ def test_training_movie_command_replays_all_checkpoints_with_shared_randomness(t
         assert np.isfinite(paths).all()
         np.testing.assert_array_equal(saved["updates"], updates)
         np.testing.assert_array_equal(saved["levels"], np.arange(1000, -1, -1))
-        expected = np.array(ddpm_trajectory(params, key, 10))
+        reverse_key, initial_key = jax.random.split(key)
+        initial = jax.random.normal(initial_key, (10, 2), dtype=jnp.float32)
+        expected = np.array(ddpm_trajectory(params, initial, reverse_key))
         for path in paths:
             np.testing.assert_array_equal(path, expected)
     settings = json.loads((run / "training-movie.json").read_text())

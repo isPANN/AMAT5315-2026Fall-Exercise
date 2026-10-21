@@ -160,7 +160,9 @@ import numpy as np
 
 with np.load("artifacts/noise-model/checkpoint-025000.npz") as saved:
     params = {name: jnp.array(saved[name]) for name in saved.files}
-path = ddpm_trajectory(params, jax.random.key(2027), count=4096)
+reverse_key, initial_key = jax.random.split(jax.random.key(2027))
+initial = jax.random.normal(initial_key, (4096, 2), dtype=jnp.float32)
+path = ddpm_trajectory(params, initial, reverse_key)
 generated = path[-1]
 ```
 
@@ -218,8 +220,9 @@ encoding. Tests check shared random draws across different predictors, complete
 path coordinates, stable colors, fixed plot limits, exclusion of future losses,
 all ten saved-stage inputs, and successful movie decoding.
 
-`ddpm_trajectory(params, key, count)` returns all 1001 levels, including the
-initial Gaussian batch at index zero and generated points at index `-1`.
+`ddpm_trajectory(params, initial, key)` returns all 1001 levels, including the
+explicit starting batch at index zero and generated points at index `-1`.
+The key controls only reverse-step noise.
 
 ## Reverse-process movie and final distribution
 
@@ -268,3 +271,72 @@ and `--seed` to select another generation run, and `--output`, `--figure` and
 sampling computation and both movie endpoints. The tests use this to verify
 the actual saved run, statistics, plot and video with a shorter encoding.
 System `ffmpeg` is required; tests also use `ffprobe`.
+
+## Deterministic DDIM and matched DDPM comparisons
+
+```sh
+uv run --no-project --with jax --with numpy --with matplotlib python -m scripts.compare_samplers
+```
+
+The default CPU run loads the final trained checkpoint and draws one batch of
+2000 Gaussian starting points using seed 2028. Two DDIM runs use exactly this
+same array and all 1000 positive noise levels, followed by the clean level zero.
+Two DDPM runs start from that array and use independent reverse-noise keys.
+The run also evaluates DDIM with the mixture's exact conditional-mean noise
+predictor and draws 2000 independent exact target samples.
+
+`evidence/ddim-ddpm-trajectories.png` shows ten matching trajectories per run,
+with colors identifying the same starting point across all panels.
+`evidence/ddim-ddpm-samples.png` shows 2000 final samples from each run alongside
+direct target draws, using shared coordinate limits. The full trajectories,
+initial points, direct target samples and selected levels are saved in
+`artifacts/ddim-comparison/runs.npz`; `settings.json` records the checkpoint,
+random keys, sampler settings, versions, device and measured differences.
+
+The largest absolute difference between the paired DDIM runs is **0.0**, measured
+over every coordinate of all 2000 samples at all 1001 states. The paired DDPM
+runs have largest absolute difference **8.244673** over the same trajectory
+coordinates. These are comparisons of paired paths, rather than distribution
+distance measures.
+
+For levels `t > s`, the deterministic DDIM update is
+
+$$\hat x_0=\frac{x_t-\sqrt{1-\bar\alpha_t}\,\hat\epsilon(x_t,t)}{\sqrt{\bar\alpha_t}},
+\qquad x_s=\sqrt{\bar\alpha_s}\,\hat x_0+\sqrt{1-\bar\alpha_s}\,\hat\epsilon(x_t,t).$$
+
+This is the `eta=0` update from [Song et al., DDIM](https://arxiv.org/abs/2010.02502).
+There is no random draw or clipping in a DDIM step. The trained network supplies
+the default noise prediction. For the analytic comparison, `exact_noise(x,t)`
+uses the forward marginal mixture: component means are
+`sqrt(alpha_bar[t])*centre`, common variance is `v=0.09*alpha_bar[t]+1-alpha_bar[t]`,
+and component probabilities are normalized Gaussian density weights `w_k`.
+The conditional-mean noise is `sqrt(1-alpha_bar[t])*(x-sum(w_k*mean_k))/v`.
+An exact conditional-mean predictor still undergoes finite-step DDIM sampling;
+the direct target draws are a separate reference distribution.
+
+Select a smaller DDIM level subset explicitly, ending with zero:
+
+```sh
+uv run --no-project --with jax --with numpy --with matplotlib python -m scripts.compare_samplers \
+  --levels 1000 800 500 200 100 10 1 0 --output artifacts/ddim-subset --figures evidence/ddim-subset
+```
+
+DDPM always uses all 1000 reverse transitions in this comparison. `--samples`,
+`--seed`, `--checkpoint`, `--output` and `--figures` select alternate runs and
+destinations; the raw output directory must be new. Direct Python use accepts a
+strictly decreasing tuple of integer levels, whose first entry lies in `1..1000`
+and whose last entry is zero:
+
+```python
+from scripts.noise_model import ddim_trajectory
+
+levels = (1000, 800, 500, 200, 100, 10, 1, 0)
+learned_path = ddim_trajectory(params, initial, levels)
+analytic_path = ddim_trajectory(None, initial, levels, exact=True)
+```
+
+The supplied `initial` points represent the first selected level. DDIM returns
+one state per selected level. Its tests check skipped-level updates, deterministic
+repetition, valid level sequences, the analytic noise against an independent
+log-density gradient, mode recovery with that predictor, explicit shared DDPM
+starts with independent step noise, and the saved comparison workflow.
