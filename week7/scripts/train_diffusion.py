@@ -8,7 +8,7 @@ import platform
 import time
 
 from scripts.diffusion import CENTRES, COMPONENT_VARIANCE, STEPS, sample_mixture
-from scripts.noise_model import ddpm_sample, initialize_model, learning_rate, noise_loss, training_batch
+from scripts.noise_model import ddpm_trajectory, initialize_model, learning_rate, noise_loss, training_batch
 
 import jax
 from jax.example_libraries import optimizers
@@ -117,7 +117,7 @@ def main():
     with np.load(args.output / checkpoint) as saved:
         final = {name: jnp.array(saved[name]) for name in saved.files}
     started = time.perf_counter()
-    generated = np.array(ddpm_sample(final, keys["sampling"], args.samples))
+    generated = np.array(ddpm_trajectory(final, keys["sampling"], args.samples)[-1])
     settings["sampling_seconds_including_compilation"] = time.perf_counter() - started
     target = np.array(sample_mixture(keys["target"], args.samples))
     np.savez_compressed(args.output / "samples.npz", generated=generated, target=target)

@@ -59,15 +59,16 @@ def ddpm_step(params, key, x, t):
 
 
 @partial(jax.jit, static_argnames=("count",))
-def ddpm_sample(params, key, count):
-    """Generate count points from N(0,I) with all 1000 reverse updates."""
+def ddpm_trajectory(params, key, count):
+    """Return x_1000,...,x_0 with shape (1001,count,2), starting from N(0,I)."""
     key, initial_key = jax.random.split(key)
     initial = jax.random.normal(initial_key, (count, 2), dtype=jnp.float32)
 
     def step(state, t):
         x, key = state
         key, noise_key = jax.random.split(key)
-        return (ddpm_step(params, noise_key, x, t), key), None
+        x = ddpm_step(params, noise_key, x, t)
+        return (x, key), x
 
-    (generated, _), _ = jax.lax.scan(step, (initial, key), jnp.arange(STEPS, 0, -1))
-    return generated
+    _, path = jax.lax.scan(step, (initial, key), jnp.arange(STEPS, 0, -1))
+    return jnp.concatenate((initial[None], path))

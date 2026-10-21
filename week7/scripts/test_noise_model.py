@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from scripts.diffusion import ALPHA_BAR
-from scripts.noise_model import ddpm_sample, ddpm_step, initialize_model, learning_rate, noise_loss, predict_noise, training_batch
+from scripts.noise_model import ddpm_trajectory, ddpm_step, initialize_model, learning_rate, noise_loss, predict_noise, training_batch
 
 import jax
 import jax.numpy as jnp
@@ -118,7 +118,7 @@ def test_training_command_retains_ten_reloadable_models_and_generates_samples(tm
     with np.load(run / "samples.npz") as saved:
         samples = saved["generated"]
         assert samples.shape == (128, 2) and np.isfinite(samples).all()
-        np.testing.assert_array_equal(samples, ddpm_sample(final, sampling_key, 128))
+        np.testing.assert_array_equal(samples, ddpm_trajectory(final, sampling_key, 128)[-1])
     from PIL import Image
     with Image.open(figure) as image:
         image.verify()

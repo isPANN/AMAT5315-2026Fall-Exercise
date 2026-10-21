@@ -153,14 +153,15 @@ specified reverse variance.
 Reload a retained model and generate points from `week7/`:
 
 ```python
-from scripts.noise_model import ddpm_sample
+from scripts.noise_model import ddpm_trajectory
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 with np.load("artifacts/noise-model/checkpoint-025000.npz") as saved:
     params = {name: jnp.array(saved[name]) for name in saved.files}
-generated = ddpm_sample(params, jax.random.key(2027), count=4096)
+path = ddpm_trajectory(params, jax.random.key(2027), count=4096)
+generated = path[-1]
 ```
 
 Tests verify time features against an independent NumPy network calculation,
@@ -177,3 +178,48 @@ the nearest-centre fractions (in the centre order above) were `23.73%`, `26.15%`
 centre was `0.09113`, compared with the target component variance `0.09`.
 These are diagnostics from one run and finite sample, rather than a guarantee
 that the learned distribution equals the target.
+
+## Movie of saved training stages
+
+```sh
+uv run --no-project --with jax --with numpy --with matplotlib python -m scripts.training_movie
+```
+
+This reads the ten checkpoints listed in `artifacts/noise-model/stages.csv`
+and writes `evidence/training-stages.mp4`. Each stage is shown for two seconds
+(60 frames at 30 fps), for a 20-second movie at 1500 × 500 pixels. Every stage
+shows ten complete DDPM paths from `t=1000` to `t=0` using its frozen predictor.
+Path colors identify matching chains; `+` marks Gaussian starts and filled dots
+mark generated endpoints. Grey circles mark the four target centres.
+
+The first panel keeps both coordinate limits fixed at `[-5,5]`. The second uses
+one fixed range containing every path at every stage, including the widely
+spread paths of the initialized model. When a path leaves a panel, a colored
+arrow at the boundary points toward its most distant off-screen point. Its label
+gives the chain number and `max r`, the maximum Euclidean distance from the
+origin reached anywhere on that complete path. Labels are spaced along each
+edge. The original path coordinates are retained and plotted without alteration.
+The loss panel uses fixed axes and
+shows raw training losses only through the current checkpoint, means of up to
+100 consecutive losses, and held-out losses for the stages reached so far.
+The training-update axis uses a symmetric log scale with a linear region through
+update 50, making the early checkpoints visible alongside the final update.
+
+All ten checkpoints use the training run's recorded sampling key and exactly ten
+chains. This reuses identical initial Gaussian points and identical standard
+normal reverse-step draws at every stage. The complete paths are retained in
+`artifacts/noise-model/training-paths.npz`, with shape `(10,1001,10,2)` ordered
+by checkpoint, decreasing diffusion level, chain and coordinate. The file also
+records checkpoint updates and diffusion levels. `training-movie.json` records
+the checkpoints, key, coupling convention, plot limits and encoding settings.
+These raw runs and the movie remain outside git.
+
+Use `--run PATH` and `--output PATH` for another saved run or movie destination;
+`--frames-per-stage N` changes the time each checkpoint remains on screen.
+The command requires system `ffmpeg`; the tests also use `ffprobe` to verify
+encoding. Tests check shared random draws across different predictors, complete
+path coordinates, stable colors, fixed plot limits, exclusion of future losses,
+all ten saved-stage inputs, and successful movie decoding.
+
+`ddpm_trajectory(params, key, count)` returns all 1001 levels, including the
+initial Gaussian batch at index zero and generated points at index `-1`.
