@@ -3,3 +3,5 @@
 /artifacts/
 __pycache__/
 /runs/
+
+/evidence-runs.tar.gz
