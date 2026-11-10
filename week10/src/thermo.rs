@@ -1,3 +1,5 @@
+mod trg;
+
 use nalgebra::DMatrix;
 use serde_json::json;
 use std::{env, fs, time::Instant};
@@ -198,7 +200,7 @@ fn solve(l: usize, k: f64, chi: usize) -> ResultData {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args().skip(1).collect();
     if args.len() != 10 {
-        return Err("usage: thermo --method boundary --l L --k K --chi CHI --out DIR".into());
+        return Err("usage: thermo --method boundary|trg --l L --k K --chi CHI --out DIR".into());
     }
     let mut method = None;
     let mut l = None;
@@ -215,12 +217,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => return Err("unknown argument".into()),
         }
     }
-    let (Some("boundary"), Some(l), Some(k), Some(chi), Some(out)) = (method, l, k, chi, out)
-    else {
-        return Err("all arguments are required; method must be boundary".into());
+    let (Some(method), Some(l), Some(k), Some(chi), Some(out)) = (method, l, k, chi, out) else {
+        return Err("all arguments are required".into());
     };
     if l < 2 || !k.is_finite() || k < 0.0 || chi < 1 {
         return Err("require L >= 2, finite K >= 0, and chi >= 1".into());
+    }
+    if method == "trg" {
+        if !l.is_power_of_two() {
+            return Err("TRG requires L to be a power of two".into());
+        }
+        let start = Instant::now();
+        let result = trg::solve(l, k, chi);
+        let evidence = json!({"model":"zero-field Ising, H=-sum_edges s_i s_j, spins ±1", "geometry":"periodic square", "method":"TRG", "l":l,"k":k,"chi":chi,"log_z":result.log_z,"g":result.log_z/(l*l) as f64,"solver_seconds":start.elapsed().as_secs_f64(),"steps":result.steps,"final_tensor":{"shape":[result.dimension,result.dimension,result.dimension,result.dimension],"data":result.tensor},"final_contraction":result.closure,"factor_index_order":"S1,S2: (first, second, retained); S3,S4: (retained, first, second); row-major","final_tensor_index_order":"right, up, left, down; row-major"});
+        fs::create_dir_all(out)?;
+        fs::write(
+            format!("{out}/evidence.json"),
+            serde_json::to_vec_pretty(&evidence)?,
+        )?;
+        println!(
+            "log Z = {:.15}, g = {:.15}",
+            result.log_z,
+            result.log_z / (l * l) as f64
+        );
+        return Ok(());
+    }
+    if method != "boundary" {
+        return Err("method must be boundary or trg".into());
     }
     let start = Instant::now();
     let result = solve(l, k, chi);
