@@ -1,0 +1,76 @@
+usage = "tnsample --mode gadgets --seed 2026 --out runs/gadgets"
+description = "Hard problems as magnets and tensor networks; no unstated defaults"
+
+[args]
+seed = "random seed, recorded with the run"
+out  = "directory for this run's raw evidence"
+
+[args.gadgets]
+mode = """
+gadgets: with bits x as spins s = 2x - 1, enumerate every state of each gate
+energy below. Report the energy of every truth-table row, minimized over the
+helper spin w for XOR.
+  AND(a,b,z)    s_a s_b - 2 s_a s_z - 2 s_b s_z - s_a - s_b + 2 s_z
+  OR(a,b,z)     s_a s_b - 2 s_a s_z - 2 s_b s_z + s_a + s_b - 2 s_z
+  NOT(a,z)      s_a s_z
+  COPY(a,z)     -s_a s_z
+  SET0(z)       s_z
+  SET1(z)       -s_z
+  XOR(a,b,z,w)  s_a s_b - s_a s_z - 2 s_a s_w - s_b s_z - 2 s_b s_w + 2 s_z s_w
+                - s_a - s_b + s_z + 2 s_w
+Also enumerate the circuit AND(a,b,t) + NOT(t,out) + SET1(out) and report the
+energy of each of its 16 states.
+"""
+
+[writes]
+stdout = "one tab-separated table with a header: mode, metric, value, runtime_ms"
+"<out>/run.json" = """
+Save the schema version, mode, seed, run parameters and summary numbers, with
+the full-precision evidence needed to recompute them.
+"""
+
+[args.magnet]
+l       = "side length L of an open square lattice (spins +1/-1); default absent"
+p-af    = "each bond is J = -1 with this probability, else +1; fixed by L and seed"
+beta    = "inverse temperature 1/T, for H = -sum_bonds J_ij s_i s_j on the lattice"
+input   = "SpinGlass bundle written by pred reduce; default absent"
+order   = "omeco planner, greedy or treesa; default treesa"
+samples = "number of independent draws in sample mode"
+
+[args.plan]
+mode = """
+plan: optimize a contraction tree with omeco (--order greedy or treesa) without
+contracting tensors. Report the number of variables, time complexity tc (log2
+operations) and space complexity sc (log2 largest intermediate tensor entries).
+"""
+
+[args.count]
+mode = """
+count: contract a network exactly, in an order planned by omeco. Report sc and tc.
+With a SpinGlass bundle (--input) or an open lattice (--l, --p-af): report log Z
+  at --beta from rescaled tensors and their accumulated log scales, and report
+  the lowest energy with its number of states from a min-plus contraction on
+  (energy, count) pairs. pred writes a bundle's energy as
+  +sum J_ij s_i s_j + sum h_i s_i, the opposite sign convention to [args.magnet].
+"""
+
+[args.sample]
+mode = """
+sample: conditional sampling from one stored contraction, for the inputs of count.
+Contract once along the planned tree and store every intermediate tensor.
+For each sample, walk the tree from the root down. At each node, draw the indices
+that node summed, with weights given by the product of its two children at the
+values already drawn.
+Record every sample, and its energy for magnets.
+"""
+
+[args.nqueens]
+n = """
+board size N of the N-queens carry network for plan, count and sample; default absent.
+Each square has one bit x and four carry tensors T(c_in, x, c_out) for its row,
+its column and each diagonal, equal to 1 at (0,0,0), (0,1,1), (1,0,1) and 0
+elsewhere. Rows and columns start at carry 0 and must end at 1; diagonals start
+at 0 and may end at 0 or 1.
+In count mode, report the exact number of valid boards.
+In sample mode, draw --samples valid boards uniformly from the stored tree.
+"""
